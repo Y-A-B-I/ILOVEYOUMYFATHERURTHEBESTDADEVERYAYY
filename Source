@@ -2,6 +2,7 @@ local ok, err = pcall(function()
 
 -- ============================================
 -- 🌙 Violence District - Auto Moonwalk Script
+-- v5.0 — Tabs + Minimap + Wall + Humanized
 -- ============================================
 
 local Players          = game:GetService("Players")
@@ -13,155 +14,190 @@ local TweenService     = game:GetService("TweenService")
 local HttpService      = game:GetService("HttpService")
 
 local safeParent = (typeof(gethui) == "function" and gethui()) or CoreGui
-local player = Players.LocalPlayer
-local camera = workspace.CurrentCamera
+local player     = Players.LocalPlayer
+local camera     = workspace.CurrentCamera
 
 -- =====================
 -- ICONS
 -- =====================
 local ICONS = { moon = "rbxassetid://12967705187" }
 task.spawn(function()
-    pcall(function() ContentProvider:PreloadAsync({ ICONS.moon }) end)
+    pcall(function() ContentProvider:PreloadAsync({ICONS.moon}) end)
 end)
 
-local function makeIcon(parent, assetId, fallbackText, size, pos, zindex, color)
-    local holder = Instance.new("Frame")
-    holder.Size = size; holder.Position = pos
-    holder.BackgroundTransparency = 1
-    holder.ZIndex = zindex; holder.Parent = parent
+local function makeIcon(parent, assetId, fallback, size, pos, zi, color)
+    local h = Instance.new("Frame")
+    h.Size=size; h.Position=pos; h.BackgroundTransparency=1; h.ZIndex=zi; h.Parent=parent
 
     local img = Instance.new("ImageLabel")
-    img.Size = UDim2.new(1,0,1,0); img.BackgroundTransparency = 1
-    img.Image = assetId; img.ImageColor3 = color or Color3.fromRGB(255,255,255)
-    img.ScaleType = Enum.ScaleType.Fit
-    img.ZIndex = zindex+1; img.Parent = holder
+    img.Size=UDim2.new(1,0,1,0); img.BackgroundTransparency=1; img.Image=assetId
+    img.ImageColor3=color or Color3.new(1,1,1); img.ScaleType=Enum.ScaleType.Fit
+    img.ZIndex=zi+1; img.Parent=h
 
-    local fallback = Instance.new("TextLabel")
-    fallback.Size = UDim2.new(1,0,1,0); fallback.BackgroundTransparency = 1
-    fallback.Text = fallbackText; fallback.TextColor3 = color or Color3.fromRGB(255,255,255)
-    fallback.TextScaled = true; fallback.Font = Enum.Font.GothamBold
-    fallback.ZIndex = zindex; fallback.Visible = false; fallback.Parent = holder
+    local fb = Instance.new("TextLabel")
+    fb.Size=UDim2.new(1,0,1,0); fb.BackgroundTransparency=1; fb.Text=fallback
+    fb.TextColor3=color or Color3.new(1,1,1); fb.TextScaled=true
+    fb.Font=Enum.Font.GothamBold; fb.ZIndex=zi; fb.Visible=false; fb.Parent=h
 
     task.spawn(function()
         task.wait(3)
-        if not img.IsLoaded or img.ImageRectSize == Vector2.new(0,0) then
-            img.Visible = false; fallback.Visible = true
+        if not img.IsLoaded or img.ImageRectSize==Vector2.new(0,0) then
+            img.Visible=false; fb.Visible=true
         end
     end)
     img:GetPropertyChangedSignal("IsLoaded"):Connect(function()
-        if img.IsLoaded then img.Visible = true; fallback.Visible = false end
+        if img.IsLoaded then img.Visible=true; fb.Visible=false end
     end)
-    return holder, img, fallback
+    return h, img, fb
 end
+
+-- =====================
+-- THEMES
+-- =====================
+local THEMES = {
+    blue   = { accent=Color3.fromRGB(70,150,255),  glow=Color3.fromRGB(45,45,190),   stroke=Color3.fromRGB(55,55,155)   },
+    red    = { accent=Color3.fromRGB(255,80,80),   glow=Color3.fromRGB(120,20,20),   stroke=Color3.fromRGB(140,30,30)   },
+    green  = { accent=Color3.fromRGB(80,220,120),  glow=Color3.fromRGB(20,100,40),   stroke=Color3.fromRGB(30,120,50)   },
+    purple = { accent=Color3.fromRGB(180,80,255),  glow=Color3.fromRGB(80,20,140),   stroke=Color3.fromRGB(100,30,160)  },
+    gold   = { accent=Color3.fromRGB(255,200,40),  glow=Color3.fromRGB(120,90,10),   stroke=Color3.fromRGB(160,120,20)  },
+    white  = { accent=Color3.fromRGB(220,225,255), glow=Color3.fromRGB(80,80,120),   stroke=Color3.fromRGB(140,140,180) },
+}
+
+local function getTheme() return THEMES[Cfg and Cfg.THEME or "blue"] or THEMES.blue end
 
 -- =====================
 -- DEFAULTS
 -- =====================
 local DEFAULTS = {
-    MOONWALK_SPEED = 8,
-    LERP_FACTOR    = 0.20,
-    STEP_INTERVAL  = 0.12,
-    SWING_WIDTH    = 5.5,
-    MAX_YAW        = 38,
-    TURN_LERP      = 0.04,
-    FRONT_FACING   = false,
-    AUTO_SAVE      = true,
-    KEYBIND_1      = "M",
-    KEYBIND_2      = "Q",
-    GUI_MODE       = "rectangle", -- "rectangle" or "box"
+    -- Movement
+    MOONWALK_SPEED   = 8,
+    LERP_FACTOR      = 0.20,
+    STEP_INTERVAL    = 0.12,
+    SWING_WIDTH      = 5.5,
+    MAX_YAW          = 38,
+    TURN_LERP        = 0.04,
+    -- Humanized
+    HUMANIZE_SPEED   = false,
+    SPEED_1          = 6,
+    SPEED_2          = 8,
+    SPEED_3          = 10,
+    HUMANIZE_TURNING = false,
+    TURN_NOISE       = 0.02,
+    -- Mode
+    FRONT_FACING     = false,
+    ANTI_DETECT      = false,
+    WALL_AUTO_OFF    = false,
+    -- Keybinds
+    KEYBIND_1        = "M",
+    KEYBIND_2        = "Q",
+    -- GUI
+    GUI_MODE         = "rectangle",
+    GUI_MODE_BOX     = false,
+    THEME            = "blue",
+    SHOW_MINIMAP     = true,
+    -- Saving
+    AUTO_SAVE        = true,
 }
 
 -- =====================
 -- SAVE / LOAD
 -- =====================
-local SAVE_FILE      = "mwalk_config.json"
-local PROFILES_FILE  = "mwalk_profiles.json"
+local SAVE_FILE     = "mwalk_config.json"
+local PROFILES_FILE = "mwalk_profiles.json"
 
 local function deepCopy(t)
-    local c = {}
-    for k,v in pairs(t) do c[k] = v end
-    return c
+    local c={}; for k,v in pairs(t) do c[k]=v end; return c
 end
 
 local function jsonSave(file, data)
-    if typeof(writefile) == "function" then
+    if typeof(writefile)=="function" then
         pcall(function() writefile(file, HttpService:JSONEncode(data)) end)
     end
 end
 
 local function jsonLoad(file)
-    if typeof(readfile) == "function" then
-        local ok2, data = pcall(readfile, file)
-        if ok2 and data and data ~= "" then
-            local ok3, decoded = pcall(function() return HttpService:JSONDecode(data) end)
-            if ok3 then return decoded end
+    if typeof(readfile)=="function" then
+        local ok2,data = pcall(readfile, file)
+        if ok2 and data and data~="" then
+            local ok3,dec = pcall(function() return HttpService:JSONDecode(data) end)
+            if ok3 then return dec end
         end
     end
     return nil
 end
 
 local function loadConfig()
-    local decoded = jsonLoad(SAVE_FILE)
-    if decoded and typeof(decoded) == "table" then
-        local merged = deepCopy(DEFAULTS)
-        for k,v in pairs(decoded) do
-            if merged[k] ~= nil and typeof(v) == typeof(merged[k]) then
-                merged[k] = v
-            end
+    local dec = jsonLoad(SAVE_FILE)
+    if dec and typeof(dec)=="table" then
+        local m = deepCopy(DEFAULTS)
+        for k,v in pairs(dec) do
+            if m[k]~=nil and typeof(v)==typeof(m[k]) then m[k]=v end
         end
-        return merged
+        return m
     end
     return deepCopy(DEFAULTS)
 end
 
-local function loadProfiles()
-    local data = jsonLoad(PROFILES_FILE)
-    if data and typeof(data) == "table" then return data end
-    return {}
-end
-
 local Cfg      = loadConfig()
-local profiles = loadProfiles()
+local profiles = jsonLoad(PROFILES_FILE) or {}
 
-local function saveConfig()
-    jsonSave(SAVE_FILE, Cfg)
-end
-
-local function saveProfiles()
-    jsonSave(PROFILES_FILE, profiles)
-end
-
-local function autoSave()
-    if Cfg.AUTO_SAVE then saveConfig() end
-end
+local function saveConfig()   jsonSave(SAVE_FILE, Cfg)      end
+local function saveProfiles() jsonSave(PROFILES_FILE, profiles) end
+local function autoSave()     if Cfg.AUTO_SAVE then saveConfig() end end
 
 -- =====================
 -- STATE
 -- =====================
-local LOCK_HOLD_TIME = 0.8
-local DRAG_THRESHOLD = 12
+local LOCK_HOLD_TIME     = 0.8
+local DRAG_THRESHOLD     = 12
 
-local moonwalkActive = false
-local stepSide       = 1
-local stepTimer      = 0
-local elapsedTime    = 0
-local isLocked       = false
-local holdTimer      = 0
-local isHolding      = false
-local activeInput    = nil
-local savedWalkSpeed = 16
-local currentFwd     = Vector3.new(0,0,-1)
-local tapConsumed    = false
-local cfgOpen        = false
-local listeningKeybind = nil  -- "1" or "2" when waiting for key press
+local moonwalkActive     = false
+local stepSide           = 1
+local stepTimer          = 0
+local elapsedTime        = 0
+local isLocked           = false
+local holdTimer          = 0
+local isHolding          = false
+local activeInput        = nil
+local savedWalkSpeed     = 16
+local currentFwd         = Vector3.new(0,0,-1)
+local tapConsumed        = false
+local cfgOpen            = false
+local listeningKeybind   = nil
+local progressBar        = nil
+
+-- Humanized speed state
+local humanSpeedCurrent  = 8
+local humanSpeedTarget   = 8
+local humanSpeedTimer    = 0
+local humanSpeedPhase    = 1
+
+-- Smooth toggle
+local smoothAlpha        = 0
+local SMOOTH_SPEED       = 5
+
+-- Anti-detect
+local antiTimer          = 0
+local antiOffset         = {speed=0, swing=0, yaw=0}
+
+-- Wall detection
+local wallCooldown       = 0
 
 local function getHRP()
-    local c = player.Character
-    return c and c:FindFirstChild("HumanoidRootPart")
+    local c=player.Character; return c and c:FindFirstChild("HumanoidRootPart")
 end
 local function getHum()
-    local c = player.Character
-    return c and c:FindFirstChildOfClass("Humanoid")
+    local c=player.Character; return c and c:FindFirstChildOfClass("Humanoid")
+end
+
+-- Raycast params (excludes character)
+local wallRayParams = RaycastParams.new()
+wallRayParams.FilterType = Enum.RaycastFilterType.Exclude
+
+local function updateWallRayParams()
+    if player.Character then
+        wallRayParams.FilterDescendantsInstances = {player.Character}
+    end
 end
 
 -- =====================
@@ -171,113 +207,139 @@ local existing = safeParent:FindFirstChild("MWalkGUI")
 if existing then existing:Destroy() end
 
 local gui = Instance.new("ScreenGui")
-gui.Name = "MWalkGUI"; gui.ResetOnSpawn = false
-gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-if typeof(syn) == "table" and syn.protect_gui then syn.protect_gui(gui) end
+gui.Name="MWalkGUI"; gui.ResetOnSpawn=false
+gui.ZIndexBehavior=Enum.ZIndexBehavior.Sibling
+if typeof(syn)=="table" and syn.protect_gui then syn.protect_gui(gui) end
 gui.Parent = safeParent
+
+-- =====================
+-- TOAST SYSTEM
+-- =====================
+local toastQueue   = {}
+local toastRunning = false
+
+local function showToast(msg, toastType)
+    table.insert(toastQueue, {msg=msg, type=toastType or "info"})
+    if toastRunning then return end
+    toastRunning = true
+    task.spawn(function()
+        while #toastQueue > 0 do
+            local item = table.remove(toastQueue,1)
+            local cmap = {
+                info    = {Color3.fromRGB(20,20,45),   Color3.fromRGB(100,160,255), Color3.fromRGB(50,80,180)  },
+                success = {Color3.fromRGB(10,35,15),   Color3.fromRGB(80,220,120),  Color3.fromRGB(30,120,50)  },
+                warning = {Color3.fromRGB(40,30,5),    Color3.fromRGB(255,200,60),  Color3.fromRGB(160,120,20) },
+                error   = {Color3.fromRGB(40,10,10),   Color3.fromRGB(255,80,80),   Color3.fromRGB(160,30,30)  },
+            }
+            local c = cmap[item.type] or cmap.info
+
+            local toast = Instance.new("Frame")
+            toast.Size=UDim2.new(0,220,0,34); toast.AnchorPoint=Vector2.new(0.5,0)
+            toast.Position=UDim2.new(0.5,0,0,-44)
+            toast.BackgroundColor3=c[1]; toast.BackgroundTransparency=0.08
+            toast.BorderSizePixel=0; toast.ZIndex=500; toast.Parent=gui
+            Instance.new("UICorner",toast).CornerRadius=UDim.new(0,8)
+            local ts=Instance.new("UIStroke"); ts.Color=c[3]; ts.Thickness=1; ts.Parent=toast
+
+            local bar=Instance.new("Frame")
+            bar.Size=UDim2.new(0,3,1,-10); bar.Position=UDim2.new(0,4,0,5)
+            bar.BackgroundColor3=c[2]; bar.BorderSizePixel=0; bar.ZIndex=501; bar.Parent=toast
+            Instance.new("UICorner",bar).CornerRadius=UDim.new(1,0)
+
+            local tl=Instance.new("TextLabel")
+            tl.Size=UDim2.new(1,-16,1,0); tl.Position=UDim2.new(0,13,0,0)
+            tl.BackgroundTransparency=1; tl.Text=msg; tl.TextColor3=c[2]
+            tl.TextSize=10; tl.Font=Enum.Font.GothamBold
+            tl.TextXAlignment=Enum.TextXAlignment.Left
+            tl.TextWrapped=true; tl.ZIndex=501; tl.Parent=toast
+
+            TweenService:Create(toast,TweenInfo.new(0.3,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),
+                {Position=UDim2.new(0.5,0,0,10)}):Play()
+            task.wait(2.2)
+            TweenService:Create(toast,TweenInfo.new(0.25,Enum.EasingStyle.Quint,Enum.EasingDirection.In),
+                {Position=UDim2.new(0.5,0,0,-44)}):Play()
+            task.wait(0.28); toast:Destroy(); task.wait(0.08)
+        end
+        toastRunning=false
+    end)
+end
 
 -- =====================
 -- CREDIT POPUP
 -- =====================
 local creditBg = Instance.new("Frame")
-creditBg.Size = UDim2.new(1,0,1,0); creditBg.Position = UDim2.new(0,0,0,0)
-creditBg.AnchorPoint = Vector2.new(0,0)
-creditBg.BackgroundColor3 = Color3.fromRGB(0,0,0)
-creditBg.BackgroundTransparency = 1
-creditBg.BorderSizePixel = 0; creditBg.ZIndex = 100; creditBg.Parent = gui
-
-TweenService:Create(creditBg, TweenInfo.new(0.3), { BackgroundTransparency = 0.55 }):Play()
+creditBg.Size=UDim2.new(1,0,1,0); creditBg.BackgroundColor3=Color3.fromRGB(0,0,0)
+creditBg.BackgroundTransparency=1; creditBg.BorderSizePixel=0; creditBg.ZIndex=100; creditBg.Parent=gui
+TweenService:Create(creditBg,TweenInfo.new(0.3),{BackgroundTransparency=0.55}):Play()
 
 local card = Instance.new("Frame")
-card.Size = UDim2.new(0,220,0,0); card.AnchorPoint = Vector2.new(0.5,0.5)
-card.Position = UDim2.new(0.5,0,0.5,0)
-card.BackgroundColor3 = Color3.fromRGB(7,7,16)
-card.BackgroundTransparency = 0.18
-card.BorderSizePixel = 0; card.ClipsDescendants = true
-card.ZIndex = 101; card.Parent = gui
-Instance.new("UICorner", card).CornerRadius = UDim.new(0,10)
+card.Size=UDim2.new(0,220,0,0); card.AnchorPoint=Vector2.new(0.5,0.5)
+card.Position=UDim2.new(0.5,0,0.5,0); card.BackgroundColor3=Color3.fromRGB(7,7,16)
+card.BackgroundTransparency=0.18; card.BorderSizePixel=0; card.ClipsDescendants=true
+card.ZIndex=101; card.Parent=gui
+Instance.new("UICorner",card).CornerRadius=UDim.new(0,10)
+local cardStroke=Instance.new("UIStroke"); cardStroke.Color=Color3.fromRGB(55,55,155)
+cardStroke.Thickness=1.5; cardStroke.Parent=card
 
-local cardStroke = Instance.new("UIStroke")
-cardStroke.Color = Color3.fromRGB(55,55,155); cardStroke.Thickness = 1.5; cardStroke.Parent = card
+local cardGlow=Instance.new("ImageLabel"); cardGlow.Size=UDim2.new(1.6,0,2.5,0)
+cardGlow.Position=UDim2.new(-0.3,0,-0.7,0); cardGlow.BackgroundTransparency=1
+cardGlow.Image="rbxassetid://5028857084"; cardGlow.ImageColor3=Color3.fromRGB(45,45,190)
+cardGlow.ImageTransparency=0.88; cardGlow.ZIndex=101; cardGlow.Parent=card
 
-local cardGlow = Instance.new("ImageLabel")
-cardGlow.Size = UDim2.new(1.6,0,2.5,0); cardGlow.Position = UDim2.new(-0.3,0,-0.7,0)
-cardGlow.BackgroundTransparency = 1; cardGlow.Image = "rbxassetid://5028857084"
-cardGlow.ImageColor3 = Color3.fromRGB(45,45,190); cardGlow.ImageTransparency = 0.88
-cardGlow.ZIndex = 101; cardGlow.Parent = card
+local cTBar=Instance.new("Frame"); cTBar.Size=UDim2.new(1,0,0,30)
+cTBar.BackgroundColor3=Color3.fromRGB(14,14,32); cTBar.BackgroundTransparency=0.1
+cTBar.BorderSizePixel=0; cTBar.ZIndex=102; cTBar.Parent=card
+Instance.new("UICorner",cTBar).CornerRadius=UDim.new(0,10)
+makeIcon(cTBar,ICONS.moon,"🌙",UDim2.new(0,15,0,15),UDim2.new(0,8,0.5,-7),103,Color3.fromRGB(120,180,255))
+local cTLbl=Instance.new("TextLabel"); cTLbl.Size=UDim2.new(1,-30,1,0)
+cTLbl.Position=UDim2.new(0,28,0,0); cTLbl.BackgroundTransparency=1
+cTLbl.Text="Violence District"; cTLbl.TextColor3=Color3.fromRGB(120,180,255)
+cTLbl.TextSize=11; cTLbl.Font=Enum.Font.GothamBold
+cTLbl.TextXAlignment=Enum.TextXAlignment.Left; cTLbl.ZIndex=103; cTLbl.Parent=cTBar
 
-local cardTitleBar = Instance.new("Frame")
-cardTitleBar.Size = UDim2.new(1,0,0,30)
-cardTitleBar.BackgroundColor3 = Color3.fromRGB(14,14,32)
-cardTitleBar.BackgroundTransparency = 0.1
-cardTitleBar.BorderSizePixel = 0; cardTitleBar.ZIndex = 102; cardTitleBar.Parent = card
-Instance.new("UICorner", cardTitleBar).CornerRadius = UDim.new(0,10)
+local cSub=Instance.new("TextLabel"); cSub.Size=UDim2.new(1,0,0,30)
+cSub.Position=UDim2.new(0,10,0,32); cSub.BackgroundTransparency=1
+cSub.Text="Auto Moonwalk Script"; cSub.TextColor3=Color3.fromRGB(70,90,140)
+cSub.TextSize=9; cSub.Font=Enum.Font.Gotham
+cSub.TextXAlignment=Enum.TextXAlignment.Left; cSub.ZIndex=102; cSub.Parent=card
 
-makeIcon(cardTitleBar, ICONS.moon, "🌙",
-    UDim2.new(0,15,0,15), UDim2.new(0,8,0.5,-7), 103, Color3.fromRGB(120,180,255))
-
-local cardTitleLbl = Instance.new("TextLabel")
-cardTitleLbl.Size = UDim2.new(1,-30,1,0); cardTitleLbl.Position = UDim2.new(0,28,0,0)
-cardTitleLbl.BackgroundTransparency = 1; cardTitleLbl.Text = "Violence District"
-cardTitleLbl.TextColor3 = Color3.fromRGB(120,180,255); cardTitleLbl.TextSize = 11
-cardTitleLbl.Font = Enum.Font.GothamBold; cardTitleLbl.TextXAlignment = Enum.TextXAlignment.Left
-cardTitleLbl.ZIndex = 103; cardTitleLbl.Parent = cardTitleBar
-
-local cardSubLbl = Instance.new("TextLabel")
-cardSubLbl.Size = UDim2.new(1,0,0,30); cardSubLbl.Position = UDim2.new(0,10,0,32)
-cardSubLbl.BackgroundTransparency = 1; cardSubLbl.Text = "Auto Moonwalk Script"
-cardSubLbl.TextColor3 = Color3.fromRGB(70,90,140); cardSubLbl.TextSize = 9
-cardSubLbl.Font = Enum.Font.Gotham; cardSubLbl.TextXAlignment = Enum.TextXAlignment.Left
-cardSubLbl.ZIndex = 102; cardSubLbl.Parent = card
-
-local function makeDividerC(yOffset)
-    local d = Instance.new("Frame")
-    d.Size = UDim2.new(1,-20,0,1); d.Position = UDim2.new(0,10,0,yOffset)
-    d.BackgroundColor3 = Color3.fromRGB(55,55,155); d.BackgroundTransparency = 0.5
-    d.BorderSizePixel = 0; d.ZIndex = 102; d.Parent = card
+local function cDiv(y)
+    local d=Instance.new("Frame"); d.Size=UDim2.new(1,-20,0,1)
+    d.Position=UDim2.new(0,10,0,y); d.BackgroundColor3=Color3.fromRGB(55,55,155)
+    d.BackgroundTransparency=0.5; d.BorderSizePixel=0; d.ZIndex=102; d.Parent=card
 end
-local function makeLabelC(text, yOff, size, color, font)
-    local l = Instance.new("TextLabel")
-    l.Size = UDim2.new(1,-20,0,size or 16); l.Position = UDim2.new(0,10,0,yOff)
-    l.BackgroundTransparency = 1; l.Text = text
-    l.TextColor3 = color or Color3.fromRGB(180,200,255); l.TextSize = 10
-    l.Font = font or Enum.Font.Gotham; l.TextXAlignment = Enum.TextXAlignment.Left
-    l.ZIndex = 102; l.Parent = card
+local function cLbl(text,y,sz,col,font)
+    local l=Instance.new("TextLabel"); l.Size=UDim2.new(1,-20,0,sz or 16)
+    l.Position=UDim2.new(0,10,0,y); l.BackgroundTransparency=1; l.Text=text
+    l.TextColor3=col or Color3.fromRGB(180,200,255); l.TextSize=10
+    l.Font=font or Enum.Font.Gotham; l.TextXAlignment=Enum.TextXAlignment.Left
+    l.ZIndex=102; l.Parent=card
 end
 
-makeDividerC(68)
-makeLabelC("CREATOR", 74, 13, Color3.fromRGB(70,100,200), Enum.Font.GothamBold)
-makeLabelC("Bird_Brain  (dormammu0000000)", 90, 16, Color3.fromRGB(160,185,255), Enum.Font.GothamMedium)
-makeDividerC(112)
-makeLabelC("TESTER", 118, 13, Color3.fromRGB(70,100,200), Enum.Font.GothamBold)
-local testers = {"@aiesprax","@andyq_l","@hzyl","@astrisxs"}
-for i,name in ipairs(testers) do
-    makeLabelC(name, 133+(i-1)*17, 15, Color3.fromRGB(140,165,230), Enum.Font.Gotham)
-end
-makeDividerC(208)
+cDiv(68); cLbl("CREATOR",74,13,Color3.fromRGB(70,100,200),Enum.Font.GothamBold)
+cLbl("Bird_Brain  (dormammu0000000)",90,16,Color3.fromRGB(160,185,255),Enum.Font.GothamMedium)
+cDiv(112); cLbl("TESTER",118,13,Color3.fromRGB(70,100,200),Enum.Font.GothamBold)
+local testers={"@aiesprax","@andyq_l","@hzyl","@astrisxs"}
+for i,name in ipairs(testers) do cLbl(name,133+(i-1)*17,15,Color3.fromRGB(140,165,230)) end
+cDiv(208)
 
-local ignoreBtn = Instance.new("TextButton")
-ignoreBtn.Size = UDim2.new(1,-20,0,26); ignoreBtn.Position = UDim2.new(0,10,0,215)
-ignoreBtn.BackgroundColor3 = Color3.fromRGB(18,18,40); ignoreBtn.BorderSizePixel = 0
-ignoreBtn.Text = "Got it, hide this"; ignoreBtn.TextColor3 = Color3.fromRGB(120,180,255)
-ignoreBtn.TextSize = 10; ignoreBtn.Font = Enum.Font.GothamBold
-ignoreBtn.ZIndex = 103; ignoreBtn.Parent = card
-Instance.new("UICorner", ignoreBtn).CornerRadius = UDim.new(0,6)
-local ignStroke = Instance.new("UIStroke")
-ignStroke.Color = Color3.fromRGB(55,55,155); ignStroke.Thickness = 1; ignStroke.Parent = ignoreBtn
-
-ignoreBtn.MouseEnter:Connect(function()
-    TweenService:Create(ignoreBtn,TweenInfo.new(0.15),{BackgroundColor3=Color3.fromRGB(30,30,65),TextColor3=Color3.fromRGB(70,200,255)}):Play()
-    TweenService:Create(ignStroke,TweenInfo.new(0.15),{Color=Color3.fromRGB(70,200,255)}):Play()
+local ignBtn=Instance.new("TextButton"); ignBtn.Size=UDim2.new(1,-20,0,26)
+ignBtn.Position=UDim2.new(0,10,0,215); ignBtn.BackgroundColor3=Color3.fromRGB(18,18,40)
+ignBtn.BorderSizePixel=0; ignBtn.Text="Got it, hide this"
+ignBtn.TextColor3=Color3.fromRGB(120,180,255); ignBtn.TextSize=10
+ignBtn.Font=Enum.Font.GothamBold; ignBtn.ZIndex=103; ignBtn.Parent=card
+Instance.new("UICorner",ignBtn).CornerRadius=UDim.new(0,6)
+local ignS=Instance.new("UIStroke"); ignS.Color=Color3.fromRGB(55,55,155); ignS.Thickness=1; ignS.Parent=ignBtn
+ignBtn.MouseEnter:Connect(function()
+    TweenService:Create(ignBtn,TweenInfo.new(0.15),{BackgroundColor3=Color3.fromRGB(30,30,65),TextColor3=Color3.fromRGB(70,200,255)}):Play()
 end)
-ignoreBtn.MouseLeave:Connect(function()
-    TweenService:Create(ignoreBtn,TweenInfo.new(0.15),{BackgroundColor3=Color3.fromRGB(18,18,40),TextColor3=Color3.fromRGB(120,180,255)}):Play()
-    TweenService:Create(ignStroke,TweenInfo.new(0.15),{Color=Color3.fromRGB(55,55,155)}):Play()
+ignBtn.MouseLeave:Connect(function()
+    TweenService:Create(ignBtn,TweenInfo.new(0.15),{BackgroundColor3=Color3.fromRGB(18,18,40),TextColor3=Color3.fromRGB(120,180,255)}):Play()
 end)
 
 task.spawn(function()
     task.wait(0.25)
-    TweenService:Create(card, TweenInfo.new(0.4,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),
+    TweenService:Create(card,TweenInfo.new(0.4,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),
         {Size=UDim2.new(0,220,0,250)}):Play()
 end)
 
@@ -287,895 +349,1129 @@ local function dismissCredit()
     TweenService:Create(creditBg,TweenInfo.new(0.3),{BackgroundTransparency=1}):Play()
     task.delay(0.32, function() creditBg:Destroy(); card:Destroy() end)
 end
-ignoreBtn.MouseButton1Click:Connect(dismissCredit)
-
--- ============================================================
--- TOGGLE BAR (Rectangle mode)
--- ============================================================
-local rectFrame = Instance.new("Frame")
-rectFrame.Size = UDim2.new(0,116,0,36)
-rectFrame.Position = UDim2.new(0.5,-58,0.88,0)
-rectFrame.BackgroundColor3 = Color3.fromRGB(7,7,16)
-rectFrame.BorderSizePixel = 0; rectFrame.ClipsDescendants = false
-rectFrame.Parent = gui; rectFrame.Visible = (Cfg.GUI_MODE == "rectangle")
-Instance.new("UICorner", rectFrame).CornerRadius = UDim.new(0,10)
-
-local rectStroke = Instance.new("UIStroke")
-rectStroke.Color = Color3.fromRGB(55,55,155); rectStroke.Thickness = 1.5; rectStroke.Parent = rectFrame
-
-local rectGlow = Instance.new("ImageLabel")
-rectGlow.Size = UDim2.new(1.6,0,2.5,0); rectGlow.Position = UDim2.new(-0.3,0,-0.7,0)
-rectGlow.BackgroundTransparency = 1; rectGlow.Image = "rbxassetid://5028857084"
-rectGlow.ImageColor3 = Color3.fromRGB(45,45,190); rectGlow.ImageTransparency = 0.88
-rectGlow.ZIndex = 0; rectGlow.Parent = rectFrame
-
-local rectMoonHolder, rectMoonImg, rectMoonFallback = makeIcon(
-    rectFrame, ICONS.moon, "🌙",
-    UDim2.new(0,20,0,20), UDim2.new(0,6,0.5,-10), 4, Color3.fromRGB(180,200,255))
-
-local rectStatusLbl = Instance.new("TextLabel")
-rectStatusLbl.Size = UDim2.new(1,-60,1,0); rectStatusLbl.Position = UDim2.new(0,30,0,0)
-rectStatusLbl.BackgroundTransparency = 1; rectStatusLbl.Text = "OFF"
-rectStatusLbl.TextColor3 = Color3.fromRGB(90,90,90); rectStatusLbl.TextSize = 12
-rectStatusLbl.Font = Enum.Font.GothamBold; rectStatusLbl.ZIndex = 4; rectStatusLbl.Parent = rectFrame
-
-local rectLockHolder, rectLockImg = makeIcon(
-    rectFrame, ICONS.moon, "🔒",
-    UDim2.new(0,16,0,16), UDim2.new(1,-22,0.5,-8), 4, Color3.fromRGB(255,210,60))
-rectLockHolder.Visible = false
-
-local rectProgBg = Instance.new("Frame")
-rectProgBg.Size = UDim2.new(1,0,0,3); rectProgBg.Position = UDim2.new(0,0,1,-3)
-rectProgBg.BackgroundColor3 = Color3.fromRGB(25,25,50); rectProgBg.BorderSizePixel = 0
-rectProgBg.ZIndex = 5; rectProgBg.Parent = rectFrame
-
-local rectProgBar = Instance.new("Frame")
-rectProgBar.Size = UDim2.new(0,0,1,0)
-rectProgBar.BackgroundColor3 = Color3.fromRGB(255,210,60)
-rectProgBar.BorderSizePixel = 0; rectProgBar.ZIndex = 6; rectProgBar.Parent = rectProgBg
-Instance.new("UICorner", rectProgBar).CornerRadius = UDim.new(0,2)
-
-local rectTapBtn = Instance.new("TextButton")
-rectTapBtn.Size = UDim2.new(1,0,1,0); rectTapBtn.BackgroundTransparency = 1
-rectTapBtn.Text = ""; rectTapBtn.ZIndex = 7; rectTapBtn.Parent = rectFrame
-
-local rectPlusBtn = Instance.new("TextButton")
-rectPlusBtn.Size = UDim2.new(0,20,0,20); rectPlusBtn.Position = UDim2.new(1,-10,0,-10)
-rectPlusBtn.BackgroundColor3 = Color3.fromRGB(18,18,40); rectPlusBtn.BorderSizePixel = 0
-rectPlusBtn.Text = "+"; rectPlusBtn.TextColor3 = Color3.fromRGB(120,180,255)
-rectPlusBtn.TextSize = 14; rectPlusBtn.Font = Enum.Font.GothamBold
-rectPlusBtn.ZIndex = 10; rectPlusBtn.Parent = rectFrame
-Instance.new("UICorner", rectPlusBtn).CornerRadius = UDim.new(0,5)
-
-local rectPlusStroke = Instance.new("UIStroke")
-rectPlusStroke.Color = Color3.fromRGB(60,80,180); rectPlusStroke.Thickness = 1
-rectPlusStroke.Parent = rectPlusBtn
-
--- ============================================================
--- BOX MODE TOGGLE
--- ============================================================
-local boxFrame = Instance.new("Frame")
-boxFrame.Size = UDim2.new(0,44,0,44)
-boxFrame.Position = UDim2.new(0.5,-22,0.88,0)
-boxFrame.BackgroundColor3 = Color3.fromRGB(7,7,16)
-boxFrame.BorderSizePixel = 0; boxFrame.ClipsDescendants = false
-boxFrame.Parent = gui; boxFrame.Visible = (Cfg.GUI_MODE == "box")
-Instance.new("UICorner", boxFrame).CornerRadius = UDim.new(0,10)
-
-local boxStroke = Instance.new("UIStroke")
-boxStroke.Color = Color3.fromRGB(55,55,155); boxStroke.Thickness = 1.5; boxStroke.Parent = boxFrame
-
-local boxGlow = Instance.new("ImageLabel")
-boxGlow.Size = UDim2.new(1.6,0,2.5,0); boxGlow.Position = UDim2.new(-0.3,0,-0.7,0)
-boxGlow.BackgroundTransparency = 1; boxGlow.Image = "rbxassetid://5028857084"
-boxGlow.ImageColor3 = Color3.fromRGB(45,45,190); boxGlow.ImageTransparency = 0.88
-boxGlow.ZIndex = 0; boxGlow.Parent = boxFrame
-
-local boxMoonHolder, boxMoonImg, boxMoonFallback = makeIcon(
-    boxFrame, ICONS.moon, "🌙",
-    UDim2.new(0,20,0,20), UDim2.new(0.5,-10,0.5,-12), 4, Color3.fromRGB(180,200,255))
-
-local boxStatusLbl = Instance.new("TextLabel")
-boxStatusLbl.Size = UDim2.new(1,0,0,12); boxStatusLbl.Position = UDim2.new(0,0,1,-13)
-boxStatusLbl.BackgroundTransparency = 1; boxStatusLbl.Text = "OFF"
-boxStatusLbl.TextColor3 = Color3.fromRGB(90,90,90); boxStatusLbl.TextSize = 8
-boxStatusLbl.Font = Enum.Font.GothamBold; boxStatusLbl.TextXAlignment = Enum.TextXAlignment.Center
-boxStatusLbl.ZIndex = 4; boxStatusLbl.Parent = boxFrame
-
-local boxProgBg = Instance.new("Frame")
-boxProgBg.Size = UDim2.new(1,0,0,3); boxProgBg.Position = UDim2.new(0,0,1,-3)
-boxProgBg.BackgroundColor3 = Color3.fromRGB(25,25,50); boxProgBg.BorderSizePixel = 0
-boxProgBg.ZIndex = 5; boxProgBg.Parent = boxFrame
-
-local boxProgBar = Instance.new("Frame")
-boxProgBar.Size = UDim2.new(0,0,1,0)
-boxProgBar.BackgroundColor3 = Color3.fromRGB(255,210,60)
-boxProgBar.BorderSizePixel = 0; boxProgBar.ZIndex = 6; boxProgBar.Parent = boxProgBg
-Instance.new("UICorner", boxProgBar).CornerRadius = UDim.new(0,2)
-
-local boxTapBtn = Instance.new("TextButton")
-boxTapBtn.Size = UDim2.new(1,0,1,0); boxTapBtn.BackgroundTransparency = 1
-boxTapBtn.Text = ""; boxTapBtn.ZIndex = 7; boxTapBtn.Parent = boxFrame
-
-local boxPlusBtn = Instance.new("TextButton")
-boxPlusBtn.Size = UDim2.new(0,16,0,16); boxPlusBtn.Position = UDim2.new(1,-8,0,-8)
-boxPlusBtn.BackgroundColor3 = Color3.fromRGB(18,18,40); boxPlusBtn.BorderSizePixel = 0
-boxPlusBtn.Text = "+"; boxPlusBtn.TextColor3 = Color3.fromRGB(120,180,255)
-boxPlusBtn.TextSize = 11; boxPlusBtn.Font = Enum.Font.GothamBold
-boxPlusBtn.ZIndex = 10; boxPlusBtn.Parent = boxFrame
-Instance.new("UICorner", boxPlusBtn).CornerRadius = UDim.new(0,4)
-
-local boxPlusStroke = Instance.new("UIStroke")
-boxPlusStroke.Color = Color3.fromRGB(60,80,180); boxPlusStroke.Thickness = 1
-boxPlusStroke.Parent = boxPlusBtn
-
--- ============================================================
--- CONFIG PANEL (shared between both modes)
--- ============================================================
-local cfgPanel = Instance.new("Frame")
-cfgPanel.Size = UDim2.new(0,250,0,420)
-cfgPanel.Position = UDim2.new(0.5,-125,0.88,-430)
-cfgPanel.BackgroundColor3 = Color3.fromRGB(7,7,16)
-cfgPanel.BorderSizePixel = 0; cfgPanel.Visible = false
-cfgPanel.ZIndex = 20; cfgPanel.Parent = gui
-Instance.new("UICorner", cfgPanel).CornerRadius = UDim.new(0,10)
-
-local cfgStroke = Instance.new("UIStroke")
-cfgStroke.Color = Color3.fromRGB(60,80,180); cfgStroke.Thickness = 1.5; cfgStroke.Parent = cfgPanel
-
-local cfgTitleBar = Instance.new("Frame")
-cfgTitleBar.Size = UDim2.new(1,0,0,28); cfgTitleBar.BackgroundColor3 = Color3.fromRGB(14,14,32)
-cfgTitleBar.BorderSizePixel = 0; cfgTitleBar.ZIndex = 21; cfgTitleBar.Parent = cfgPanel
-Instance.new("UICorner", cfgTitleBar).CornerRadius = UDim.new(0,10)
-
-local cfgTitleLbl = Instance.new("TextLabel")
-cfgTitleLbl.Size = UDim2.new(1,-36,1,0); cfgTitleLbl.Position = UDim2.new(0,10,0,0)
-cfgTitleLbl.BackgroundTransparency = 1; cfgTitleLbl.Text = "Configuration"
-cfgTitleLbl.TextColor3 = Color3.fromRGB(120,180,255); cfgTitleLbl.TextSize = 11
-cfgTitleLbl.Font = Enum.Font.GothamBold; cfgTitleLbl.TextXAlignment = Enum.TextXAlignment.Left
-cfgTitleLbl.ZIndex = 22; cfgTitleLbl.Parent = cfgTitleBar
-
-local cfgCloseBtn = Instance.new("TextButton")
-cfgCloseBtn.Size = UDim2.new(0,20,0,20); cfgCloseBtn.Position = UDim2.new(1,-24,0,4)
-cfgCloseBtn.BackgroundColor3 = Color3.fromRGB(140,30,30); cfgCloseBtn.BorderSizePixel = 0
-cfgCloseBtn.Text = "×"; cfgCloseBtn.TextColor3 = Color3.fromRGB(255,255,255)
-cfgCloseBtn.TextSize = 14; cfgCloseBtn.Font = Enum.Font.GothamBold
-cfgCloseBtn.ZIndex = 22; cfgCloseBtn.Parent = cfgTitleBar
-Instance.new("UICorner", cfgCloseBtn).CornerRadius = UDim.new(0,4)
-
-local cfgBtnRow = Instance.new("Frame")
-cfgBtnRow.Size = UDim2.new(1,-10,0,26); cfgBtnRow.Position = UDim2.new(0,5,0,32)
-cfgBtnRow.BackgroundTransparency = 1; cfgBtnRow.ZIndex = 21; cfgBtnRow.Parent = cfgPanel
-
-local saveBtn = Instance.new("TextButton")
-saveBtn.Size = UDim2.new(0.48,0,1,0); saveBtn.BackgroundColor3 = Color3.fromRGB(15,70,15)
-saveBtn.BorderSizePixel = 0; saveBtn.Text = "Save"; saveBtn.TextColor3 = Color3.fromRGB(100,255,100)
-saveBtn.TextSize = 10; saveBtn.Font = Enum.Font.GothamBold; saveBtn.ZIndex = 22; saveBtn.Parent = cfgBtnRow
-Instance.new("UICorner", saveBtn).CornerRadius = UDim.new(0,6)
-Instance.new("UIStroke", saveBtn).Color = Color3.fromRGB(30,120,30)
-
-local resetBtn = Instance.new("TextButton")
-resetBtn.Size = UDim2.new(0.48,0,1,0); resetBtn.Position = UDim2.new(0.52,0,0,0)
-resetBtn.BackgroundColor3 = Color3.fromRGB(70,25,5); resetBtn.BorderSizePixel = 0
-resetBtn.Text = "Reset"; resetBtn.TextColor3 = Color3.fromRGB(255,160,80)
-resetBtn.TextSize = 10; resetBtn.Font = Enum.Font.GothamBold; resetBtn.ZIndex = 22; resetBtn.Parent = cfgBtnRow
-Instance.new("UICorner", resetBtn).CornerRadius = UDim.new(0,6)
-Instance.new("UIStroke", resetBtn).Color = Color3.fromRGB(160,80,20)
-
-local cfgSaveLbl = Instance.new("TextLabel")
-cfgSaveLbl.Size = UDim2.new(1,-10,0,14); cfgSaveLbl.Position = UDim2.new(0,5,0,61)
-cfgSaveLbl.BackgroundTransparency = 1; cfgSaveLbl.Text = ""
-cfgSaveLbl.TextColor3 = Color3.fromRGB(100,220,100); cfgSaveLbl.TextSize = 9
-cfgSaveLbl.Font = Enum.Font.Gotham; cfgSaveLbl.TextXAlignment = Enum.TextXAlignment.Center
-cfgSaveLbl.ZIndex = 22; cfgSaveLbl.Parent = cfgPanel
-
--- Scrollable content
-local contentFrame = Instance.new("ScrollingFrame")
-contentFrame.Size = UDim2.new(1,-10,1,-82); contentFrame.Position = UDim2.new(0,5,0,78)
-contentFrame.BackgroundTransparency = 1; contentFrame.BorderSizePixel = 0
-contentFrame.ScrollBarThickness = 2; contentFrame.ScrollBarImageColor3 = Color3.fromRGB(60,80,180)
-contentFrame.CanvasSize = UDim2.new(0,0,0,0); contentFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
-contentFrame.ZIndex = 21; contentFrame.Parent = cfgPanel
-
-local listLayout = Instance.new("UIListLayout")
-listLayout.SortOrder = Enum.SortOrder.LayoutOrder; listLayout.Padding = UDim.new(0,6)
-listLayout.Parent = contentFrame
-
-local contentPad = Instance.new("UIPadding")
-contentPad.PaddingTop = UDim.new(0,4); contentPad.PaddingBottom = UDim.new(0,8)
-contentPad.PaddingLeft = UDim.new(0,4); contentPad.PaddingRight = UDim.new(0,4)
-contentPad.Parent = contentFrame
+ignBtn.MouseButton1Click:Connect(dismissCredit)
 
 -- =====================
--- UI BUILDERS
+-- RECTANGLE TOGGLE BAR
 -- =====================
-local function makeSectionHeader(text, layoutOrder)
-    local hdr = Instance.new("Frame")
-    hdr.Size = UDim2.new(1,0,0,20); hdr.BackgroundTransparency = 1
-    hdr.LayoutOrder = layoutOrder; hdr.ZIndex = 22; hdr.Parent = contentFrame
+local rectFrame=Instance.new("Frame"); rectFrame.Size=UDim2.new(0,116,0,36)
+rectFrame.Position=UDim2.new(0.5,-58,0.88,0); rectFrame.BackgroundColor3=Color3.fromRGB(7,7,16)
+rectFrame.BorderSizePixel=0; rectFrame.ClipsDescendants=false
+rectFrame.Visible=(Cfg.GUI_MODE=="rectangle"); rectFrame.Parent=gui
+Instance.new("UICorner",rectFrame).CornerRadius=UDim.new(0,10)
 
-    local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(1,0,1,0); lbl.BackgroundTransparency = 1
-    lbl.Text = text; lbl.TextColor3 = Color3.fromRGB(70,100,200); lbl.TextSize = 9
-    lbl.Font = Enum.Font.GothamBold; lbl.TextXAlignment = Enum.TextXAlignment.Left
-    lbl.ZIndex = 23; lbl.Parent = hdr
+local rectStroke=Instance.new("UIStroke"); rectStroke.Color=Color3.fromRGB(55,55,155)
+rectStroke.Thickness=1.5; rectStroke.Parent=rectFrame
 
-    local line = Instance.new("Frame")
-    line.Size = UDim2.new(1,0,0,1); line.Position = UDim2.new(0,0,1,-1)
-    line.BackgroundColor3 = Color3.fromRGB(55,55,155); line.BackgroundTransparency = 0.5
-    line.BorderSizePixel = 0; line.ZIndex = 22; line.Parent = hdr
+local rectGlow=Instance.new("ImageLabel"); rectGlow.Size=UDim2.new(1.6,0,2.5,0)
+rectGlow.Position=UDim2.new(-0.3,0,-0.7,0); rectGlow.BackgroundTransparency=1
+rectGlow.Image="rbxassetid://5028857084"; rectGlow.ImageColor3=Color3.fromRGB(45,45,190)
+rectGlow.ImageTransparency=0.88; rectGlow.ZIndex=0; rectGlow.Parent=rectFrame
+
+local _,rectMoonImg,rectMoonFb=makeIcon(rectFrame,ICONS.moon,"🌙",
+    UDim2.new(0,20,0,20),UDim2.new(0,6,0.5,-10),4,Color3.fromRGB(180,200,255))
+
+local rectStatus=Instance.new("TextLabel"); rectStatus.Size=UDim2.new(1,-60,1,0)
+rectStatus.Position=UDim2.new(0,30,0,0); rectStatus.BackgroundTransparency=1
+rectStatus.Text="OFF"; rectStatus.TextColor3=Color3.fromRGB(90,90,90)
+rectStatus.TextSize=12; rectStatus.Font=Enum.Font.GothamBold; rectStatus.ZIndex=4
+rectStatus.Parent=rectFrame
+
+local rectLockH=makeIcon(rectFrame,ICONS.moon,"🔒",
+    UDim2.new(0,16,0,16),UDim2.new(1,-22,0.5,-8),4,Color3.fromRGB(255,210,60))
+rectLockH.Visible=false
+
+local rectProgBg=Instance.new("Frame"); rectProgBg.Size=UDim2.new(1,0,0,3)
+rectProgBg.Position=UDim2.new(0,0,1,-3); rectProgBg.BackgroundColor3=Color3.fromRGB(25,25,50)
+rectProgBg.BorderSizePixel=0; rectProgBg.ZIndex=5; rectProgBg.Parent=rectFrame
+
+local rectProgBar=Instance.new("Frame"); rectProgBar.Size=UDim2.new(0,0,1,0)
+rectProgBar.BackgroundColor3=Color3.fromRGB(255,210,60); rectProgBar.BorderSizePixel=0
+rectProgBar.ZIndex=6; rectProgBar.Parent=rectProgBg
+Instance.new("UICorner",rectProgBar).CornerRadius=UDim.new(0,2)
+
+local rectTap=Instance.new("TextButton"); rectTap.Size=UDim2.new(1,0,1,0)
+rectTap.BackgroundTransparency=1; rectTap.Text=""; rectTap.ZIndex=7; rectTap.Parent=rectFrame
+
+local rectPlus=Instance.new("TextButton"); rectPlus.Size=UDim2.new(0,20,0,20)
+rectPlus.Position=UDim2.new(1,-10,0,-10); rectPlus.BackgroundColor3=Color3.fromRGB(18,18,40)
+rectPlus.BorderSizePixel=0; rectPlus.Text="+"; rectPlus.TextColor3=Color3.fromRGB(120,180,255)
+rectPlus.TextSize=14; rectPlus.Font=Enum.Font.GothamBold; rectPlus.ZIndex=10; rectPlus.Parent=rectFrame
+Instance.new("UICorner",rectPlus).CornerRadius=UDim.new(0,5)
+local rectPlusS=Instance.new("UIStroke"); rectPlusS.Color=Color3.fromRGB(60,80,180)
+rectPlusS.Thickness=1; rectPlusS.Parent=rectPlus
+
+-- =====================
+-- BOX TOGGLE
+-- =====================
+local boxFrame=Instance.new("Frame"); boxFrame.Size=UDim2.new(0,44,0,44)
+boxFrame.Position=UDim2.new(0.5,-22,0.88,0); boxFrame.BackgroundColor3=Color3.fromRGB(7,7,16)
+boxFrame.BorderSizePixel=0; boxFrame.ClipsDescendants=false
+boxFrame.Visible=(Cfg.GUI_MODE=="box"); boxFrame.Parent=gui
+Instance.new("UICorner",boxFrame).CornerRadius=UDim.new(0,10)
+
+local boxStroke=Instance.new("UIStroke"); boxStroke.Color=Color3.fromRGB(55,55,155)
+boxStroke.Thickness=1.5; boxStroke.Parent=boxFrame
+
+local boxGlow=Instance.new("ImageLabel"); boxGlow.Size=UDim2.new(1.6,0,2.5,0)
+boxGlow.Position=UDim2.new(-0.3,0,-0.7,0); boxGlow.BackgroundTransparency=1
+boxGlow.Image="rbxassetid://5028857084"; boxGlow.ImageColor3=Color3.fromRGB(45,45,190)
+boxGlow.ImageTransparency=0.88; boxGlow.ZIndex=0; boxGlow.Parent=boxFrame
+
+local _,boxMoonImg,boxMoonFb=makeIcon(boxFrame,ICONS.moon,"🌙",
+    UDim2.new(0,20,0,20),UDim2.new(0.5,-10,0,3),4,Color3.fromRGB(180,200,255))
+
+local boxStatus=Instance.new("TextLabel"); boxStatus.Size=UDim2.new(1,0,0,12)
+boxStatus.Position=UDim2.new(0,0,1,-13); boxStatus.BackgroundTransparency=1
+boxStatus.Text="OFF"; boxStatus.TextColor3=Color3.fromRGB(90,90,90); boxStatus.TextSize=8
+boxStatus.Font=Enum.Font.GothamBold; boxStatus.TextXAlignment=Enum.TextXAlignment.Center
+boxStatus.ZIndex=4; boxStatus.Parent=boxFrame
+
+local boxProgBg=Instance.new("Frame"); boxProgBg.Size=UDim2.new(1,0,0,3)
+boxProgBg.Position=UDim2.new(0,0,1,-3); boxProgBg.BackgroundColor3=Color3.fromRGB(25,25,50)
+boxProgBg.BorderSizePixel=0; boxProgBg.ZIndex=5; boxProgBg.Parent=boxFrame
+
+local boxProgBar=Instance.new("Frame"); boxProgBar.Size=UDim2.new(0,0,1,0)
+boxProgBar.BackgroundColor3=Color3.fromRGB(255,210,60); boxProgBar.BorderSizePixel=0
+boxProgBar.ZIndex=6; boxProgBar.Parent=boxProgBg
+Instance.new("UICorner",boxProgBar).CornerRadius=UDim.new(0,2)
+
+local boxTap=Instance.new("TextButton"); boxTap.Size=UDim2.new(1,0,1,0)
+boxTap.BackgroundTransparency=1; boxTap.Text=""; boxTap.ZIndex=7; boxTap.Parent=boxFrame
+
+local boxPlus=Instance.new("TextButton"); boxPlus.Size=UDim2.new(0,16,0,16)
+boxPlus.Position=UDim2.new(1,-8,0,-8); boxPlus.BackgroundColor3=Color3.fromRGB(18,18,40)
+boxPlus.BorderSizePixel=0; boxPlus.Text="+"; boxPlus.TextColor3=Color3.fromRGB(120,180,255)
+boxPlus.TextSize=11; boxPlus.Font=Enum.Font.GothamBold; boxPlus.ZIndex=10; boxPlus.Parent=boxFrame
+Instance.new("UICorner",boxPlus).CornerRadius=UDim.new(0,4)
+local boxPlusS=Instance.new("UIStroke"); boxPlusS.Color=Color3.fromRGB(60,80,180)
+boxPlusS.Thickness=1; boxPlusS.Parent=boxPlus
+
+-- =====================
+-- MINIMAP RADAR
+-- =====================
+local MINIMAP_DIRS   = 16     -- jumlah arah raycast
+local MINIMAP_RADIUS = 80     -- radius raycast deteksi (studs)
+local MINIMAP_SIZE   = 90     -- ukuran frame minimap (px)
+local MINIMAP_INNER  = 36     -- radius lingkaran dalam (px)
+
+local minimapFrame=Instance.new("Frame"); minimapFrame.Size=UDim2.new(0,MINIMAP_SIZE,0,MINIMAP_SIZE)
+minimapFrame.Position=UDim2.new(0,10,0,10); minimapFrame.BackgroundColor3=Color3.fromRGB(5,5,14)
+minimapFrame.BackgroundTransparency=0.2; minimapFrame.BorderSizePixel=0; minimapFrame.ZIndex=50
+minimapFrame.Visible=Cfg.SHOW_MINIMAP; minimapFrame.Parent=gui
+Instance.new("UICorner",minimapFrame).CornerRadius=UDim.new(1,0)
+local mmS=Instance.new("UIStroke"); mmS.Color=Color3.fromRGB(55,55,155); mmS.Thickness=1.5
+mmS.Parent=minimapFrame
+
+-- Player dot (center)
+local playerDot=Instance.new("Frame"); playerDot.Size=UDim2.new(0,6,0,6)
+playerDot.AnchorPoint=Vector2.new(0.5,0.5); playerDot.Position=UDim2.new(0.5,0,0.5,0)
+playerDot.BackgroundColor3=Color3.fromRGB(70,225,255); playerDot.BorderSizePixel=0
+playerDot.ZIndex=53; playerDot.Parent=minimapFrame
+Instance.new("UICorner",playerDot).CornerRadius=UDim.new(1,0)
+
+-- Direction arrow (shows which way moonwalk is moving)
+local dirArrow=Instance.new("Frame"); dirArrow.Size=UDim2.new(0,3,0,12)
+dirArrow.AnchorPoint=Vector2.new(0.5,1); dirArrow.Position=UDim2.new(0.5,0,0.5,0)
+dirArrow.BackgroundColor3=Color3.fromRGB(120,255,150); dirArrow.BorderSizePixel=0
+dirArrow.ZIndex=52; dirArrow.Parent=minimapFrame
+Instance.new("UICorner",dirArrow).CornerRadius=UDim.new(0,2)
+
+-- Wall blips (one per raycast direction)
+local wallBlips = {}
+local mmCX = MINIMAP_SIZE/2
+local mmCY = MINIMAP_SIZE/2
+local mmDrawR = (MINIMAP_SIZE/2) - 6  -- max draw radius
+
+for i=1, MINIMAP_DIRS do
+    local blip=Instance.new("Frame"); blip.Size=UDim2.new(0,4,0,4)
+    blip.AnchorPoint=Vector2.new(0.5,0.5); blip.BackgroundColor3=Color3.fromRGB(255,80,80)
+    blip.BorderSizePixel=0; blip.ZIndex=51; blip.Visible=false; blip.Parent=minimapFrame
+    Instance.new("UICorner",blip).CornerRadius=UDim.new(1,0)
+    wallBlips[i] = blip
 end
 
-local sliderUpdaters = {}
+-- Compass labels
+for i, data in ipairs({{"N",0,-1},{"E",1,0},{"S",0,1},{"W",-1,0}}) do
+    local cl=Instance.new("TextLabel"); cl.Size=UDim2.new(0,14,0,14)
+    cl.AnchorPoint=Vector2.new(0.5,0.5)
+    cl.Position=UDim2.new(0.5, data[2]*(mmDrawR-4), 0.5, data[3]*(mmDrawR-4))
+    cl.BackgroundTransparency=1; cl.Text=data[1]
+    cl.TextColor3=Color3.fromRGB(60,70,120); cl.TextSize=7; cl.Font=Enum.Font.GothamBold
+    cl.ZIndex=52; cl.Parent=minimapFrame
+end
 
-local function makeSlider(label, key, minVal, maxVal, decimals, layoutOrder)
-    local fmt = decimals > 0 and ("%."..decimals.."f") or "%d"
-    local row = Instance.new("Frame")
-    row.Size = UDim2.new(1,0,0,56); row.BackgroundColor3 = Color3.fromRGB(13,13,28)
-    row.BorderSizePixel = 0; row.LayoutOrder = layoutOrder; row.ZIndex = 22; row.Parent = contentFrame
-    Instance.new("UICorner", row).CornerRadius = UDim.new(0,6)
+-- Minimap label
+local mmLabel=Instance.new("TextLabel"); mmLabel.Size=UDim2.new(0,MINIMAP_SIZE,0,14)
+mmLabel.Position=UDim2.new(0,0,1,2); mmLabel.BackgroundTransparency=1
+mmLabel.Text="RADAR"; mmLabel.TextColor3=Color3.fromRGB(55,65,120); mmLabel.TextSize=8
+mmLabel.Font=Enum.Font.GothamBold; mmLabel.ZIndex=50; mmLabel.Parent=minimapFrame
 
-    local nameLbl = Instance.new("TextLabel")
-    nameLbl.Size = UDim2.new(1,-70,0,14); nameLbl.Position = UDim2.new(0,8,0,4)
-    nameLbl.BackgroundTransparency = 1; nameLbl.Text = label
-    nameLbl.TextColor3 = Color3.fromRGB(180,200,255); nameLbl.TextSize = 10
-    nameLbl.Font = Enum.Font.Gotham; nameLbl.TextXAlignment = Enum.TextXAlignment.Left
-    nameLbl.ZIndex = 23; nameLbl.Parent = row
+-- =====================
+-- CONFIG PANEL
+-- =====================
+local cfgPanel=Instance.new("Frame"); cfgPanel.Size=UDim2.new(0,250,0,400)
+cfgPanel.Position=UDim2.new(0.5,-125,0.88,-410); cfgPanel.BackgroundColor3=Color3.fromRGB(7,7,16)
+cfgPanel.BorderSizePixel=0; cfgPanel.Visible=false; cfgPanel.ZIndex=20; cfgPanel.Parent=gui
+Instance.new("UICorner",cfgPanel).CornerRadius=UDim.new(0,10)
+local cfgStroke=Instance.new("UIStroke"); cfgStroke.Color=Color3.fromRGB(60,80,180)
+cfgStroke.Thickness=1.5; cfgStroke.Parent=cfgPanel
 
-    local inputBox = Instance.new("TextBox")
-    inputBox.Size = UDim2.new(0,52,0,16); inputBox.Position = UDim2.new(1,-58,0,2)
-    inputBox.BackgroundColor3 = Color3.fromRGB(20,20,45); inputBox.BorderSizePixel = 0
-    inputBox.Text = ""; inputBox.TextColor3 = Color3.fromRGB(70,225,255)
-    inputBox.PlaceholderText = "0"; inputBox.PlaceholderColor3 = Color3.fromRGB(60,80,100)
-    inputBox.TextSize = 10; inputBox.Font = Enum.Font.GothamBold
-    inputBox.TextXAlignment = Enum.TextXAlignment.Center
-    inputBox.ClearTextOnFocus = false; inputBox.ZIndex = 24; inputBox.Parent = row
-    Instance.new("UICorner", inputBox).CornerRadius = UDim.new(0,4)
+-- Title bar
+local cfgTBar=Instance.new("Frame"); cfgTBar.Size=UDim2.new(1,0,0,28)
+cfgTBar.BackgroundColor3=Color3.fromRGB(14,14,32); cfgTBar.BorderSizePixel=0
+cfgTBar.ZIndex=21; cfgTBar.Parent=cfgPanel
+Instance.new("UICorner",cfgTBar).CornerRadius=UDim.new(0,10)
 
-    local ibStroke = Instance.new("UIStroke")
-    ibStroke.Color = Color3.fromRGB(50,70,160); ibStroke.Thickness = 1; ibStroke.Parent = inputBox
+local cfgTitle=Instance.new("TextLabel"); cfgTitle.Size=UDim2.new(1,-36,1,0)
+cfgTitle.Position=UDim2.new(0,10,0,0); cfgTitle.BackgroundTransparency=1
+cfgTitle.Text="Configuration"; cfgTitle.TextColor3=Color3.fromRGB(120,180,255)
+cfgTitle.TextSize=11; cfgTitle.Font=Enum.Font.GothamBold
+cfgTitle.TextXAlignment=Enum.TextXAlignment.Left; cfgTitle.ZIndex=22; cfgTitle.Parent=cfgTBar
 
-    local trackBg = Instance.new("Frame")
-    trackBg.Size = UDim2.new(1,-16,0,6); trackBg.Position = UDim2.new(0,8,0,38)
-    trackBg.BackgroundColor3 = Color3.fromRGB(25,25,55); trackBg.BorderSizePixel = 0
-    trackBg.ZIndex = 23; trackBg.Parent = row
-    Instance.new("UICorner", trackBg).CornerRadius = UDim.new(0,3)
+local cfgClose=Instance.new("TextButton"); cfgClose.Size=UDim2.new(0,20,0,20)
+cfgClose.Position=UDim2.new(1,-24,0,4); cfgClose.BackgroundColor3=Color3.fromRGB(140,30,30)
+cfgClose.BorderSizePixel=0; cfgClose.Text="×"; cfgClose.TextColor3=Color3.fromRGB(255,255,255)
+cfgClose.TextSize=14; cfgClose.Font=Enum.Font.GothamBold; cfgClose.ZIndex=22; cfgClose.Parent=cfgTBar
+Instance.new("UICorner",cfgClose).CornerRadius=UDim.new(0,4)
 
-    local trackFill = Instance.new("Frame")
-    trackFill.Size = UDim2.new(0,0,1,0); trackFill.BackgroundColor3 = Color3.fromRGB(70,150,255)
-    trackFill.BorderSizePixel = 0; trackFill.ZIndex = 24; trackFill.Parent = trackBg
-    Instance.new("UICorner", trackFill).CornerRadius = UDim.new(0,3)
+-- Save / Reset row
+local btnRow=Instance.new("Frame"); btnRow.Size=UDim2.new(1,-10,0,24)
+btnRow.Position=UDim2.new(0,5,0,30); btnRow.BackgroundTransparency=1; btnRow.ZIndex=21; btnRow.Parent=cfgPanel
 
-    local thumb = Instance.new("Frame")
-    thumb.Size = UDim2.new(0,10,0,10); thumb.AnchorPoint = Vector2.new(0.5,0.5)
-    thumb.BackgroundColor3 = Color3.fromRGB(255,255,255); thumb.BorderSizePixel = 0
-    thumb.ZIndex = 25; thumb.Parent = trackBg
-    Instance.new("UICorner", thumb).CornerRadius = UDim.new(1,0)
+local saveBtn=Instance.new("TextButton"); saveBtn.Size=UDim2.new(0.48,0,1,0)
+saveBtn.BackgroundColor3=Color3.fromRGB(15,70,15); saveBtn.BorderSizePixel=0
+saveBtn.Text="Save"; saveBtn.TextColor3=Color3.fromRGB(100,255,100); saveBtn.TextSize=10
+saveBtn.Font=Enum.Font.GothamBold; saveBtn.ZIndex=22; saveBtn.Parent=btnRow
+Instance.new("UICorner",saveBtn).CornerRadius=UDim.new(0,6)
+Instance.new("UIStroke",saveBtn).Color=Color3.fromRGB(30,120,30)
 
-    local function applyValue(val)
-        val = math.clamp(val, minVal, maxVal)
-        local mult = 10^decimals; val = math.floor(val*mult+0.5)/mult
-        local t = (val-minVal)/(maxVal-minVal)
-        trackFill.Size = UDim2.new(t,0,1,0); thumb.Position = UDim2.new(t,0,0.5,0)
-        inputBox.Text = string.format(fmt,val); Cfg[key] = val
-        ibStroke.Color = Color3.fromRGB(50,70,160); autoSave()
+local resetBtn=Instance.new("TextButton"); resetBtn.Size=UDim2.new(0.48,0,1,0)
+resetBtn.Position=UDim2.new(0.52,0,0,0); resetBtn.BackgroundColor3=Color3.fromRGB(70,25,5)
+resetBtn.BorderSizePixel=0; resetBtn.Text="Reset"; resetBtn.TextColor3=Color3.fromRGB(255,160,80)
+resetBtn.TextSize=10; resetBtn.Font=Enum.Font.GothamBold; resetBtn.ZIndex=22; resetBtn.Parent=btnRow
+Instance.new("UICorner",resetBtn).CornerRadius=UDim.new(0,6)
+Instance.new("UIStroke",resetBtn).Color=Color3.fromRGB(160,80,20)
+
+local cfgSaveLbl=Instance.new("TextLabel"); cfgSaveLbl.Size=UDim2.new(1,-10,0,12)
+cfgSaveLbl.Position=UDim2.new(0,5,0,56); cfgSaveLbl.BackgroundTransparency=1
+cfgSaveLbl.Text=""; cfgSaveLbl.TextColor3=Color3.fromRGB(100,220,100); cfgSaveLbl.TextSize=9
+cfgSaveLbl.Font=Enum.Font.Gotham; cfgSaveLbl.TextXAlignment=Enum.TextXAlignment.Center
+cfgSaveLbl.ZIndex=22; cfgSaveLbl.Parent=cfgPanel
+
+-- =====================
+-- TAB BAR
+-- =====================
+local TAB_DEFS = {
+    {id="move",  label="Move"},
+    {id="human", label="Human"},
+    {id="mode",  label="Mode"},
+    {id="keys",  label="Keys"},
+    {id="gui",   label="GUI"},
+    {id="save",  label="Save"},
+}
+
+local tabBar=Instance.new("Frame"); tabBar.Size=UDim2.new(1,-10,0,22)
+tabBar.Position=UDim2.new(0,5,0,70); tabBar.BackgroundTransparency=1
+tabBar.ZIndex=22; tabBar.Parent=cfgPanel
+
+local tabBarLayout=Instance.new("UIListLayout")
+tabBarLayout.FillDirection=Enum.FillDirection.Horizontal
+tabBarLayout.Padding=UDim.new(0,3); tabBarLayout.SortOrder=Enum.SortOrder.LayoutOrder
+tabBarLayout.Parent=tabBar
+
+local tabPages  = {}
+local tabBtns   = {}
+local activeTab = "move"
+
+local tabW = math.floor((240 - (#TAB_DEFS-1)*3) / #TAB_DEFS)
+
+for i, def in ipairs(TAB_DEFS) do
+    local tb=Instance.new("TextButton"); tb.Size=UDim2.new(0,tabW,1,0)
+    tb.BackgroundColor3=Color3.fromRGB(13,13,28); tb.BorderSizePixel=0
+    tb.Text=def.label; tb.TextColor3=Color3.fromRGB(100,110,160); tb.TextSize=9
+    tb.Font=Enum.Font.GothamBold; tb.LayoutOrder=i; tb.ZIndex=23; tb.Parent=tabBar
+    Instance.new("UICorner",tb).CornerRadius=UDim.new(0,5)
+    local tbs=Instance.new("UIStroke"); tbs.Color=Color3.fromRGB(35,35,75); tbs.Thickness=1; tbs.Parent=tb
+    tabBtns[def.id]=tb
+
+    local page=Instance.new("ScrollingFrame")
+    page.Size=UDim2.new(1,-10,1,-96); page.Position=UDim2.new(0,5,0,94)
+    page.BackgroundTransparency=1; page.BorderSizePixel=0
+    page.ScrollBarThickness=2; page.ScrollBarImageColor3=Color3.fromRGB(60,80,180)
+    page.CanvasSize=UDim2.new(0,0,0,0); page.AutomaticCanvasSize=Enum.AutomaticSize.Y
+    page.Visible=(def.id==activeTab); page.ZIndex=21; page.Parent=cfgPanel
+    tabPages[def.id]=page
+
+    local pl=Instance.new("UIListLayout"); pl.SortOrder=Enum.SortOrder.LayoutOrder
+    pl.Padding=UDim.new(0,5); pl.Parent=page
+    local pp=Instance.new("UIPadding"); pp.PaddingTop=UDim.new(0,4)
+    pp.PaddingBottom=UDim.new(0,8); pp.PaddingLeft=UDim.new(0,4)
+    pp.PaddingRight=UDim.new(0,4); pp.Parent=page
+
+    tb.MouseButton1Click:Connect(function()
+        activeTab=def.id
+        for id,pg in pairs(tabPages) do pg.Visible=(id==def.id) end
+        local t=getTheme()
+        for id,btn in pairs(tabBtns) do
+            local act=(id==def.id)
+            TweenService:Create(btn,TweenInfo.new(0.15),{
+                BackgroundColor3=act and Color3.fromRGB(20,20,48) or Color3.fromRGB(13,13,28),
+                TextColor3=act and t.accent or Color3.fromRGB(100,110,160)
+            }):Play()
+            for _,c in ipairs(btn:GetChildren()) do
+                if c:IsA("UIStroke") then
+                    TweenService:Create(c,TweenInfo.new(0.15),{
+                        Color=act and t.stroke or Color3.fromRGB(35,35,75)
+                    }):Play()
+                end
+            end
+        end
+    end)
+end
+
+-- Init tab highlight
+do
+    local t=getTheme()
+    local tb=tabBtns["move"]
+    tb.BackgroundColor3=Color3.fromRGB(20,20,48); tb.TextColor3=t.accent
+    for _,c in ipairs(tb:GetChildren()) do
+        if c:IsA("UIStroke") then c.Color=t.stroke end
+    end
+end
+
+-- =====================
+-- WIDGET BUILDERS
+-- =====================
+local sliderUpdaters  = {}
+local toggleRefreshers = {}
+local keybindBtns     = {}
+
+-- Slider
+local function makeSlider(parent, label, key, minV, maxV, dec, order)
+    local fmt = dec>0 and ("%."..dec.."f") or "%d"
+    local row=Instance.new("Frame"); row.Size=UDim2.new(1,0,0,54)
+    row.BackgroundColor3=Color3.fromRGB(13,13,28); row.BorderSizePixel=0
+    row.LayoutOrder=order; row.ZIndex=22; row.Parent=parent
+    Instance.new("UICorner",row).CornerRadius=UDim.new(0,6)
+
+    local nl=Instance.new("TextLabel"); nl.Size=UDim2.new(1,-70,0,13)
+    nl.Position=UDim2.new(0,8,0,4); nl.BackgroundTransparency=1; nl.Text=label
+    nl.TextColor3=Color3.fromRGB(180,200,255); nl.TextSize=10; nl.Font=Enum.Font.Gotham
+    nl.TextXAlignment=Enum.TextXAlignment.Left; nl.ZIndex=23; nl.Parent=row
+
+    local ib=Instance.new("TextBox"); ib.Size=UDim2.new(0,52,0,15)
+    ib.Position=UDim2.new(1,-58,0,2); ib.BackgroundColor3=Color3.fromRGB(20,20,45)
+    ib.BorderSizePixel=0; ib.Text=""; ib.TextColor3=Color3.fromRGB(70,225,255)
+    ib.PlaceholderText="0"; ib.PlaceholderColor3=Color3.fromRGB(60,80,100)
+    ib.TextSize=10; ib.Font=Enum.Font.GothamBold
+    ib.TextXAlignment=Enum.TextXAlignment.Center; ib.ClearTextOnFocus=false
+    ib.ZIndex=24; ib.Parent=row
+    Instance.new("UICorner",ib).CornerRadius=UDim.new(0,4)
+    local ibs=Instance.new("UIStroke"); ibs.Color=Color3.fromRGB(50,70,160)
+    ibs.Thickness=1; ibs.Parent=ib
+
+    local track=Instance.new("Frame"); track.Size=UDim2.new(1,-16,0,6)
+    track.Position=UDim2.new(0,8,0,36); track.BackgroundColor3=Color3.fromRGB(25,25,55)
+    track.BorderSizePixel=0; track.ZIndex=23; track.Parent=row
+    Instance.new("UICorner",track).CornerRadius=UDim.new(0,3)
+
+    local fill=Instance.new("Frame"); fill.Size=UDim2.new(0,0,1,0)
+    fill.BackgroundColor3=Color3.fromRGB(70,150,255); fill.BorderSizePixel=0
+    fill.ZIndex=24; fill.Parent=track
+    Instance.new("UICorner",fill).CornerRadius=UDim.new(0,3)
+
+    local thumb=Instance.new("Frame"); thumb.Size=UDim2.new(0,10,0,10)
+    thumb.AnchorPoint=Vector2.new(0.5,0.5); thumb.BackgroundColor3=Color3.fromRGB(255,255,255)
+    thumb.BorderSizePixel=0; thumb.ZIndex=25; thumb.Parent=track
+    Instance.new("UICorner",thumb).CornerRadius=UDim.new(1,0)
+
+    local function applyVal(v)
+        v=math.clamp(v,minV,maxV)
+        local m=10^dec; v=math.floor(v*m+0.5)/m
+        local t=(v-minV)/(maxV-minV)
+        fill.Size=UDim2.new(t,0,1,0); thumb.Position=UDim2.new(t,0,0.5,0)
+        ib.Text=string.format(fmt,v); Cfg[key]=v
+        ibs.Color=Color3.fromRGB(50,70,160); autoSave()
     end
 
-    applyValue(Cfg[key]); sliderUpdaters[key] = applyValue
+    applyVal(Cfg[key]); sliderUpdaters[key]=applyVal
 
-    local drag = false
-    trackBg.InputBegan:Connect(function(inp)
+    local drag=false
+    track.InputBegan:Connect(function(inp)
         if inp.UserInputType==Enum.UserInputType.MouseButton1 or inp.UserInputType==Enum.UserInputType.Touch then
-            drag = true
-            applyValue(minVal+(maxVal-minVal)*math.clamp((inp.Position.X-trackBg.AbsolutePosition.X)/trackBg.AbsoluteSize.X,0,1))
+            drag=true
+            applyVal(minV+(maxV-minV)*math.clamp((inp.Position.X-track.AbsolutePosition.X)/track.AbsoluteSize.X,0,1))
         end
     end)
     UserInputService.InputChanged:Connect(function(inp)
         if not drag then return end
         if inp.UserInputType==Enum.UserInputType.MouseMovement or inp.UserInputType==Enum.UserInputType.Touch then
-            applyValue(minVal+(maxVal-minVal)*math.clamp((inp.Position.X-trackBg.AbsolutePosition.X)/trackBg.AbsoluteSize.X,0,1))
+            applyVal(minV+(maxV-minV)*math.clamp((inp.Position.X-track.AbsolutePosition.X)/track.AbsoluteSize.X,0,1))
         end
     end)
     UserInputService.InputEnded:Connect(function(inp)
         if inp.UserInputType==Enum.UserInputType.MouseButton1 or inp.UserInputType==Enum.UserInputType.Touch then drag=false end
     end)
 
-    inputBox.Focused:Connect(function() ibStroke.Color=Color3.fromRGB(70,150,255) end)
-    inputBox:GetPropertyChangedSignal("Text"):Connect(function()
-        local c = inputBox.Text:match("^%-?%d*%.?%d*") or ""
-        if c~=inputBox.Text then inputBox.Text=c end
+    ib.Focused:Connect(function() ibs.Color=Color3.fromRGB(70,150,255) end)
+    ib:GetPropertyChangedSignal("Text"):Connect(function()
+        local cl=ib.Text:match("^%-?%d*%.?%d*") or ""
+        if cl~=ib.Text then ib.Text=cl end
     end)
-    inputBox.FocusLost:Connect(function()
-        local n = tonumber(inputBox.Text)
-        if n then applyValue(n)
-        else inputBox.Text=string.format(fmt,Cfg[key]); ibStroke.Color=Color3.fromRGB(160,50,50)
-            task.delay(1,function() ibStroke.Color=Color3.fromRGB(50,70,160) end) end
+    ib.FocusLost:Connect(function()
+        local n=tonumber(ib.Text)
+        if n then applyVal(n)
+        else ib.Text=string.format(fmt,Cfg[key]); ibs.Color=Color3.fromRGB(160,50,50)
+            task.delay(1,function() ibs.Color=Color3.fromRGB(50,70,160) end)
+        end
     end)
 end
 
-local toggleRefreshers = {}
+-- Toggle pill
+local function makeToggleRow(parent, label, key, order, onToggle)
+    local row=Instance.new("Frame"); row.Size=UDim2.new(1,0,0,34)
+    row.BackgroundColor3=Color3.fromRGB(13,13,28); row.BorderSizePixel=0
+    row.LayoutOrder=order; row.ZIndex=22; row.Parent=parent
+    Instance.new("UICorner",row).CornerRadius=UDim.new(0,6)
 
-local function makeToggleRow(labelText, key, layoutOrder)
-    local row = Instance.new("Frame")
-    row.Size = UDim2.new(1,0,0,36); row.BackgroundColor3 = Color3.fromRGB(13,13,28)
-    row.BorderSizePixel = 0; row.LayoutOrder = layoutOrder; row.ZIndex = 22; row.Parent = contentFrame
-    Instance.new("UICorner", row).CornerRadius = UDim.new(0,6)
+    local lbl=Instance.new("TextLabel"); lbl.Size=UDim2.new(1,-60,1,0)
+    lbl.Position=UDim2.new(0,10,0,0); lbl.BackgroundTransparency=1; lbl.Text=label
+    lbl.TextColor3=Color3.fromRGB(180,200,255); lbl.TextSize=10; lbl.Font=Enum.Font.Gotham
+    lbl.TextXAlignment=Enum.TextXAlignment.Left; lbl.ZIndex=23; lbl.Parent=row
 
-    local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(1,-60,1,0); lbl.Position = UDim2.new(0,10,0,0)
-    lbl.BackgroundTransparency = 1; lbl.Text = labelText
-    lbl.TextColor3 = Color3.fromRGB(180,200,255); lbl.TextSize = 10
-    lbl.Font = Enum.Font.Gotham; lbl.TextXAlignment = Enum.TextXAlignment.Left
-    lbl.ZIndex = 23; lbl.Parent = row
+    local pill=Instance.new("Frame"); pill.Size=UDim2.new(0,36,0,18)
+    pill.Position=UDim2.new(1,-44,0.5,-9); pill.BackgroundColor3=Color3.fromRGB(40,40,80)
+    pill.BorderSizePixel=0; pill.ZIndex=23; pill.Parent=row
+    Instance.new("UICorner",pill).CornerRadius=UDim.new(1,0)
+    local ps=Instance.new("UIStroke"); ps.Color=Color3.fromRGB(55,55,120); ps.Thickness=1; ps.Parent=pill
 
-    local pill = Instance.new("Frame")
-    pill.Size = UDim2.new(0,36,0,18); pill.Position = UDim2.new(1,-44,0.5,-9)
-    pill.BackgroundColor3 = Color3.fromRGB(40,40,80); pill.BorderSizePixel = 0
-    pill.ZIndex = 23; pill.Parent = row
-    Instance.new("UICorner", pill).CornerRadius = UDim.new(1,0)
+    local knob=Instance.new("Frame"); knob.Size=UDim2.new(0,12,0,12)
+    knob.Position=UDim2.new(0,3,0.5,-6); knob.BackgroundColor3=Color3.fromRGB(140,140,180)
+    knob.BorderSizePixel=0; knob.ZIndex=24; knob.Parent=pill
+    Instance.new("UICorner",knob).CornerRadius=UDim.new(1,0)
 
-    local pillStroke = Instance.new("UIStroke")
-    pillStroke.Color = Color3.fromRGB(55,55,120); pillStroke.Thickness = 1; pillStroke.Parent = pill
-
-    local knob = Instance.new("Frame")
-    knob.Size = UDim2.new(0,12,0,12); knob.Position = UDim2.new(0,3,0.5,-6)
-    knob.BackgroundColor3 = Color3.fromRGB(140,140,180); knob.BorderSizePixel = 0
-    knob.ZIndex = 24; knob.Parent = pill
-    Instance.new("UICorner", knob).CornerRadius = UDim.new(1,0)
-
-    local pillBtn = Instance.new("TextButton")
-    pillBtn.Size = UDim2.new(1,0,1,0); pillBtn.BackgroundTransparency = 1
-    pillBtn.Text = ""; pillBtn.ZIndex = 25; pillBtn.Parent = pill
+    local pb=Instance.new("TextButton"); pb.Size=UDim2.new(1,0,1,0)
+    pb.BackgroundTransparency=1; pb.Text=""; pb.ZIndex=25; pb.Parent=pill
 
     local function refresh(val)
+        local t=getTheme()
         if val then
-            TweenService:Create(pill,TweenInfo.new(0.18),{BackgroundColor3=Color3.fromRGB(30,80,180)}):Play()
-            TweenService:Create(knob,TweenInfo.new(0.18),{Position=UDim2.new(0,21,0.5,-6),BackgroundColor3=Color3.fromRGB(200,220,255)}):Play()
-            TweenService:Create(pillStroke,TweenInfo.new(0.18),{Color=Color3.fromRGB(70,150,255)}):Play()
+            TweenService:Create(pill,TweenInfo.new(0.18),{BackgroundColor3=Color3.fromRGB(20,60,160)}):Play()
+            TweenService:Create(knob,TweenInfo.new(0.18),{Position=UDim2.new(0,21,0.5,-6),BackgroundColor3=t.accent}):Play()
+            TweenService:Create(ps,TweenInfo.new(0.18),{Color=t.stroke}):Play()
         else
             TweenService:Create(pill,TweenInfo.new(0.18),{BackgroundColor3=Color3.fromRGB(40,40,80)}):Play()
             TweenService:Create(knob,TweenInfo.new(0.18),{Position=UDim2.new(0,3,0.5,-6),BackgroundColor3=Color3.fromRGB(140,140,180)}):Play()
-            TweenService:Create(pillStroke,TweenInfo.new(0.18),{Color=Color3.fromRGB(55,55,120)}):Play()
+            TweenService:Create(ps,TweenInfo.new(0.18),{Color=Color3.fromRGB(55,55,120)}):Play()
         end
     end
 
-    refresh(Cfg[key]); toggleRefreshers[key] = refresh
+    refresh(Cfg[key]); toggleRefreshers[key]=refresh
 
-    pillBtn.MouseButton1Click:Connect(function()
-        Cfg[key] = not Cfg[key]; refresh(Cfg[key]); autoSave()
-        -- GUI mode switch
-        if key == "GUI_MODE_BOX" then
-            Cfg.GUI_MODE = Cfg[key] and "box" or "rectangle"
-            rectFrame.Visible = (Cfg.GUI_MODE == "rectangle")
-            boxFrame.Visible  = (Cfg.GUI_MODE == "box")
-            autoSave()
-        end
+    pb.MouseButton1Click:Connect(function()
+        Cfg[key]=not Cfg[key]; refresh(Cfg[key]); autoSave()
+        if onToggle then onToggle(Cfg[key]) end
     end)
 
     return refresh
 end
 
--- =====================
--- KEYBIND ROW BUILDER
--- =====================
-local keybindBtns = {}
+-- Keybind row
+local function makeKeybindRow(parent, label, idx, order)
+    local cfgKey="KEYBIND_"..idx
+    local row=Instance.new("Frame"); row.Size=UDim2.new(1,0,0,34)
+    row.BackgroundColor3=Color3.fromRGB(13,13,28); row.BorderSizePixel=0
+    row.LayoutOrder=order; row.ZIndex=22; row.Parent=parent
+    Instance.new("UICorner",row).CornerRadius=UDim.new(0,6)
 
-local function makeKeybindRow(labelText, keyIndex, layoutOrder)
-    local cfgKey = "KEYBIND_"..keyIndex
+    local lbl=Instance.new("TextLabel"); lbl.Size=UDim2.new(1,-70,1,0)
+    lbl.Position=UDim2.new(0,10,0,0); lbl.BackgroundTransparency=1; lbl.Text=label
+    lbl.TextColor3=Color3.fromRGB(180,200,255); lbl.TextSize=10; lbl.Font=Enum.Font.Gotham
+    lbl.TextXAlignment=Enum.TextXAlignment.Left; lbl.ZIndex=23; lbl.Parent=row
 
-    local row = Instance.new("Frame")
-    row.Size = UDim2.new(1,0,0,36); row.BackgroundColor3 = Color3.fromRGB(13,13,28)
-    row.BorderSizePixel = 0; row.LayoutOrder = layoutOrder; row.ZIndex = 22; row.Parent = contentFrame
-    Instance.new("UICorner", row).CornerRadius = UDim.new(0,6)
+    local kbBtn=Instance.new("TextButton"); kbBtn.Size=UDim2.new(0,52,0,22)
+    kbBtn.Position=UDim2.new(1,-58,0.5,-11); kbBtn.BackgroundColor3=Color3.fromRGB(20,20,45)
+    kbBtn.BorderSizePixel=0; kbBtn.Text=Cfg[cfgKey]; kbBtn.TextColor3=Color3.fromRGB(70,225,255)
+    kbBtn.TextSize=10; kbBtn.Font=Enum.Font.GothamBold; kbBtn.ZIndex=24; kbBtn.Parent=row
+    Instance.new("UICorner",kbBtn).CornerRadius=UDim.new(0,4)
+    local kbs=Instance.new("UIStroke"); kbs.Color=Color3.fromRGB(50,70,160); kbs.Thickness=1; kbs.Parent=kbBtn
 
-    local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(1,-70,1,0); lbl.Position = UDim2.new(0,10,0,0)
-    lbl.BackgroundTransparency = 1; lbl.Text = labelText
-    lbl.TextColor3 = Color3.fromRGB(180,200,255); lbl.TextSize = 10
-    lbl.Font = Enum.Font.Gotham; lbl.TextXAlignment = Enum.TextXAlignment.Left
-    lbl.ZIndex = 23; lbl.Parent = row
-
-    local kbBtn = Instance.new("TextButton")
-    kbBtn.Size = UDim2.new(0,52,0,22); kbBtn.Position = UDim2.new(1,-58,0.5,-11)
-    kbBtn.BackgroundColor3 = Color3.fromRGB(20,20,45); kbBtn.BorderSizePixel = 0
-    kbBtn.Text = Cfg[cfgKey]; kbBtn.TextColor3 = Color3.fromRGB(70,225,255)
-    kbBtn.TextSize = 10; kbBtn.Font = Enum.Font.GothamBold; kbBtn.ZIndex = 24; kbBtn.Parent = row
-    Instance.new("UICorner", kbBtn).CornerRadius = UDim.new(0,4)
-
-    local kbStroke = Instance.new("UIStroke")
-    kbStroke.Color = Color3.fromRGB(50,70,160); kbStroke.Thickness = 1; kbStroke.Parent = kbBtn
-
-    keybindBtns[keyIndex] = { btn = kbBtn, stroke = kbStroke, cfgKey = cfgKey }
+    keybindBtns[idx]={btn=kbBtn, stroke=kbs, cfgKey=cfgKey}
 
     kbBtn.MouseButton1Click:Connect(function()
         if listeningKeybind then
-            -- cancel previous listen
-            local prev = keybindBtns[listeningKeybind]
-            if prev then
-                prev.btn.Text = Cfg[prev.cfgKey]
-                prev.btn.TextColor3 = Color3.fromRGB(70,225,255)
-                TweenService:Create(prev.stroke,TweenInfo.new(0.15),{Color=Color3.fromRGB(50,70,160)}):Play()
-            end
+            local prev=keybindBtns[listeningKeybind]
+            if prev then prev.btn.Text=Cfg[prev.cfgKey]; prev.btn.TextColor3=Color3.fromRGB(70,225,255)
+                TweenService:Create(prev.stroke,TweenInfo.new(0.15),{Color=Color3.fromRGB(50,70,160)}):Play() end
         end
-        listeningKeybind = keyIndex
-        kbBtn.Text = "..."
-        kbBtn.TextColor3 = Color3.fromRGB(255,210,60)
-        TweenService:Create(kbStroke,TweenInfo.new(0.15),{Color=Color3.fromRGB(255,210,60)}):Play()
+        listeningKeybind=idx; kbBtn.Text="..."; kbBtn.TextColor3=Color3.fromRGB(255,210,60)
+        TweenService:Create(kbs,TweenInfo.new(0.15),{Color=Color3.fromRGB(255,210,60)}):Play()
     end)
 end
+
+-- Section header
+local function makeSectionHdr(parent, text, order)
+    local h=Instance.new("Frame"); h.Size=UDim2.new(1,0,0,18)
+    h.BackgroundTransparency=1; h.LayoutOrder=order; h.ZIndex=22; h.Parent=parent
+    local l=Instance.new("TextLabel"); l.Size=UDim2.new(1,0,1,0); l.BackgroundTransparency=1
+    l.Text=text; l.TextColor3=Color3.fromRGB(70,100,200); l.TextSize=9; l.Font=Enum.Font.GothamBold
+    l.TextXAlignment=Enum.TextXAlignment.Left; l.ZIndex=23; l.Parent=h
+    local ln=Instance.new("Frame"); ln.Size=UDim2.new(1,0,0,1); ln.Position=UDim2.new(0,0,1,-1)
+    ln.BackgroundColor3=Color3.fromRGB(55,55,155); ln.BackgroundTransparency=0.5
+    ln.BorderSizePixel=0; ln.ZIndex=22; ln.Parent=h
+end
+
+-- =====================
+-- POPULATE TABS
+-- =====================
+
+-- MOVE tab
+makeSectionHdr(tabPages.move,"MOVEMENT",1)
+makeSlider(tabPages.move,"Walk Speed",   "MOONWALK_SPEED",  2,   30,  1, 2)
+makeSlider(tabPages.move,"Swing Width",  "SWING_WIDTH",     0,   15,  2, 3)
+makeSlider(tabPages.move,"Max Yaw",      "MAX_YAW",         0,   60,  1, 4)
+makeSlider(tabPages.move,"Lerp Factor",  "LERP_FACTOR",     0.01,0.5, 2, 5)
+makeSlider(tabPages.move,"Step Interval","STEP_INTERVAL",   0.04,0.4, 2, 6)
+makeSlider(tabPages.move,"Turn Speed",   "TURN_LERP",       0.01,0.2, 2, 7)
+
+-- HUMAN tab
+makeSectionHdr(tabPages.human,"HUMANIZED SPEED",1)
+makeToggleRow(tabPages.human,"Humanize Speed","HUMANIZE_SPEED",2)
+makeSlider(tabPages.human,"Speed Min","SPEED_1",2,30,1,3)
+makeSlider(tabPages.human,"Speed Mid","SPEED_2",2,30,1,4)
+makeSlider(tabPages.human,"Speed Max","SPEED_3",2,30,1,5)
+makeSectionHdr(tabPages.human,"HUMANIZED TURNING",6)
+makeToggleRow(tabPages.human,"Humanize Turning","HUMANIZE_TURNING",7)
+makeSlider(tabPages.human,"Turn Noise","TURN_NOISE",0.001,0.15,3,8)
+
+-- MODE tab
+makeSectionHdr(tabPages.mode,"DIRECTION",1)
+makeToggleRow(tabPages.mode,"Front Facing","FRONT_FACING",2)
+makeSectionHdr(tabPages.mode,"DETECTION",3)
+makeToggleRow(tabPages.mode,"Anti-Detect","ANTI_DETECT",4)
+makeToggleRow(tabPages.mode,"Wall Auto-Off","WALL_AUTO_OFF",5,function(val)
+    showToast("Wall Auto-Off: "..(val and "ON" or "OFF"), val and "success" or "info")
+end)
+
+-- KEYS tab
+makeSectionHdr(tabPages.keys,"KEYBINDS",1)
+makeKeybindRow(tabPages.keys,"Toggle Key 1","1",2)
+makeKeybindRow(tabPages.keys,"Toggle Key 2","2",3)
+
+-- GUI tab — toggles + theme swatches
+makeSectionHdr(tabPages.gui,"LAYOUT",1)
+makeToggleRow(tabPages.gui,"Small Box Mode","GUI_MODE_BOX",2,function(val)
+    Cfg.GUI_MODE = val and "box" or "rectangle"
+    rectFrame.Visible=(Cfg.GUI_MODE=="rectangle"); boxFrame.Visible=(Cfg.GUI_MODE=="box"); autoSave()
+end)
+makeToggleRow(tabPages.gui,"Show Minimap","SHOW_MINIMAP",3,function(val)
+    minimapFrame.Visible=val
+    showToast("Minimap: "..(val and "ON" or "OFF"), "info")
+end)
+
+-- Theme picker
+makeSectionHdr(tabPages.gui,"THEME",4)
+local themePickerRow=Instance.new("Frame"); themePickerRow.Size=UDim2.new(1,0,0,40)
+themePickerRow.BackgroundColor3=Color3.fromRGB(13,13,28); themePickerRow.BorderSizePixel=0
+themePickerRow.LayoutOrder=5; themePickerRow.ZIndex=22; themePickerRow.Parent=tabPages.gui
+Instance.new("UICorner",themePickerRow).CornerRadius=UDim.new(0,6)
+
+local swatchHolder=Instance.new("Frame"); swatchHolder.Size=UDim2.new(1,-16,0,24)
+swatchHolder.Position=UDim2.new(0,8,0.5,-12); swatchHolder.BackgroundTransparency=1
+swatchHolder.ZIndex=23; swatchHolder.Parent=themePickerRow
+local swatchLL=Instance.new("UIListLayout"); swatchLL.FillDirection=Enum.FillDirection.Horizontal
+swatchLL.Padding=UDim.new(0,6); swatchLL.VerticalAlignment=Enum.VerticalAlignment.Center
+swatchLL.SortOrder=Enum.SortOrder.LayoutOrder; swatchLL.Parent=swatchHolder
+
+local swatchBorders={}
+local themeNames={"blue","red","green","purple","gold","white"}
+for i,tname in ipairs(themeNames) do
+    local t=THEMES[tname]
+    local sw=Instance.new("TextButton"); sw.Size=UDim2.new(0,24,0,24)
+    sw.BackgroundColor3=t.accent; sw.BorderSizePixel=0; sw.Text=""
+    sw.LayoutOrder=i; sw.ZIndex=24; sw.Parent=swatchHolder
+    Instance.new("UICorner",sw).CornerRadius=UDim.new(1,0)
+    local sb=Instance.new("UIStroke"); sb.Thickness=(Cfg.THEME==tname) and 2.5 or 0
+    sb.Color=Color3.fromRGB(255,255,255); sb.Parent=sw; swatchBorders[tname]=sb
+
+    sw.MouseButton1Click:Connect(function()
+        Cfg.THEME=tname; autoSave()
+        -- Update all borders
+        for tn,b in pairs(swatchBorders) do
+            TweenService:Create(b,TweenInfo.new(0.15),{Thickness=(tn==tname) and 2.5 or 0}):Play()
+        end
+        -- Apply theme to all UI
+        local th=THEMES[tname]
+        local ti=TweenInfo.new(0.3)
+        for _,s in ipairs({rectStroke,boxStroke,cfgStroke,rectPlusS,boxPlusS,mmS}) do
+            TweenService:Create(s,ti,{Color=th.stroke}):Play()
+        end
+        for _,g in ipairs({rectGlow,boxGlow}) do
+            TweenService:Create(g,ti,{ImageColor3=th.glow}):Play()
+        end
+        cfgTitle.TextColor3=th.accent
+        -- Refresh active tab highlight
+        local atb=tabBtns[activeTab]
+        if atb then atb.TextColor3=th.accent
+            for _,c in ipairs(atb:GetChildren()) do
+                if c:IsA("UIStroke") then c.Color=th.stroke end
+            end
+        end
+        showToast("Theme: "..tname:sub(1,1):upper()..tname:sub(2),"info")
+    end)
+    sw.MouseEnter:Connect(function()
+        if Cfg.THEME~=tname then TweenService:Create(sb,TweenInfo.new(0.1),{Thickness=1.5}):Play() end
+    end)
+    sw.MouseLeave:Connect(function()
+        if Cfg.THEME~=tname then TweenService:Create(sb,TweenInfo.new(0.1),{Thickness=0}):Play() end
+    end)
+end
+
+-- SAVE tab
+makeSectionHdr(tabPages.save,"SAVING",1)
+makeToggleRow(tabPages.save,"Auto Save Config","AUTO_SAVE",2)
+
+-- Config loader button
+local loaderWrapper=Instance.new("Frame"); loaderWrapper.Size=UDim2.new(1,0,0,34)
+loaderWrapper.BackgroundColor3=Color3.fromRGB(13,13,28); loaderWrapper.BorderSizePixel=0
+loaderWrapper.LayoutOrder=3; loaderWrapper.ZIndex=22; loaderWrapper.Parent=tabPages.save
+Instance.new("UICorner",loaderWrapper).CornerRadius=UDim.new(0,6)
+
+local loaderOpenBtn=Instance.new("TextButton"); loaderOpenBtn.Size=UDim2.new(1,-16,0,22)
+loaderOpenBtn.Position=UDim2.new(0,8,0.5,-11); loaderOpenBtn.BackgroundColor3=Color3.fromRGB(15,50,100)
+loaderOpenBtn.BorderSizePixel=0; loaderOpenBtn.Text="Open Config Loader"
+loaderOpenBtn.TextColor3=Color3.fromRGB(100,180,255); loaderOpenBtn.TextSize=10
+loaderOpenBtn.Font=Enum.Font.GothamBold; loaderOpenBtn.ZIndex=23; loaderOpenBtn.Parent=loaderWrapper
+Instance.new("UICorner",loaderOpenBtn).CornerRadius=UDim.new(0,6)
+Instance.new("UIStroke",loaderOpenBtn).Color=Color3.fromRGB(30,80,160)
 
 -- =====================
 -- CONFIG LOADER PANEL
 -- =====================
-local loaderPanel = Instance.new("Frame")
-loaderPanel.Size = UDim2.new(0,240,0,300); loaderPanel.Position = UDim2.new(0.5,10,0.88,-310)
-loaderPanel.BackgroundColor3 = Color3.fromRGB(7,7,16); loaderPanel.BorderSizePixel = 0
-loaderPanel.Visible = false; loaderPanel.ZIndex = 30; loaderPanel.Parent = gui
-Instance.new("UICorner", loaderPanel).CornerRadius = UDim.new(0,10)
+local loaderPanel=Instance.new("Frame"); loaderPanel.Size=UDim2.new(0,230,0,290)
+loaderPanel.Position=UDim2.new(0.5,10,0.88,-300); loaderPanel.BackgroundColor3=Color3.fromRGB(7,7,16)
+loaderPanel.BorderSizePixel=0; loaderPanel.Visible=false; loaderPanel.ZIndex=30; loaderPanel.Parent=gui
+Instance.new("UICorner",loaderPanel).CornerRadius=UDim.new(0,10)
+local ldrS=Instance.new("UIStroke"); ldrS.Color=Color3.fromRGB(60,80,180); ldrS.Thickness=1.5; ldrS.Parent=loaderPanel
 
-local loaderStroke = Instance.new("UIStroke")
-loaderStroke.Color = Color3.fromRGB(60,80,180); loaderStroke.Thickness = 1.5
-loaderStroke.Parent = loaderPanel
+local ldrTBar=Instance.new("Frame"); ldrTBar.Size=UDim2.new(1,0,0,28)
+ldrTBar.BackgroundColor3=Color3.fromRGB(14,14,32); ldrTBar.BorderSizePixel=0
+ldrTBar.ZIndex=31; ldrTBar.Parent=loaderPanel
+Instance.new("UICorner",ldrTBar).CornerRadius=UDim.new(0,10)
+local ldrT=Instance.new("TextLabel"); ldrT.Size=UDim2.new(1,-36,1,0); ldrT.Position=UDim2.new(0,10,0,0)
+ldrT.BackgroundTransparency=1; ldrT.Text="Config Loader"; ldrT.TextColor3=Color3.fromRGB(120,180,255)
+ldrT.TextSize=11; ldrT.Font=Enum.Font.GothamBold; ldrT.TextXAlignment=Enum.TextXAlignment.Left
+ldrT.ZIndex=32; ldrT.Parent=ldrTBar
+local ldrClose=Instance.new("TextButton"); ldrClose.Size=UDim2.new(0,20,0,20)
+ldrClose.Position=UDim2.new(1,-24,0,4); ldrClose.BackgroundColor3=Color3.fromRGB(140,30,30)
+ldrClose.BorderSizePixel=0; ldrClose.Text="×"; ldrClose.TextColor3=Color3.fromRGB(255,255,255)
+ldrClose.TextSize=14; ldrClose.Font=Enum.Font.GothamBold; ldrClose.ZIndex=32; ldrClose.Parent=ldrTBar
+Instance.new("UICorner",ldrClose).CornerRadius=UDim.new(0,4)
+ldrClose.MouseButton1Click:Connect(function() loaderPanel.Visible=false end)
 
-local loaderTitle = Instance.new("Frame")
-loaderTitle.Size = UDim2.new(1,0,0,28); loaderTitle.BackgroundColor3 = Color3.fromRGB(14,14,32)
-loaderTitle.BorderSizePixel = 0; loaderTitle.ZIndex = 31; loaderTitle.Parent = loaderPanel
-Instance.new("UICorner", loaderTitle).CornerRadius = UDim.new(0,10)
+local saveAsRow=Instance.new("Frame"); saveAsRow.Size=UDim2.new(1,-10,0,28); saveAsRow.Position=UDim2.new(0,5,0,32)
+saveAsRow.BackgroundTransparency=1; saveAsRow.ZIndex=31; saveAsRow.Parent=loaderPanel
+local saBox=Instance.new("TextBox"); saBox.Size=UDim2.new(1,-62,1,0)
+saBox.BackgroundColor3=Color3.fromRGB(20,20,45); saBox.BorderSizePixel=0
+saBox.Text=""; saBox.PlaceholderText="Config name..."; saBox.PlaceholderColor3=Color3.fromRGB(60,80,100)
+saBox.TextColor3=Color3.fromRGB(70,225,255); saBox.TextSize=10; saBox.Font=Enum.Font.Gotham
+saBox.ClearTextOnFocus=false; saBox.ZIndex=32; saBox.Parent=saveAsRow
+Instance.new("UICorner",saBox).CornerRadius=UDim.new(0,6)
+Instance.new("UIStroke",saBox).Color=Color3.fromRGB(50,70,160)
+local saBtn=Instance.new("TextButton"); saBtn.Size=UDim2.new(0,56,1,0); saBtn.Position=UDim2.new(1,-56,0,0)
+saBtn.BackgroundColor3=Color3.fromRGB(15,70,15); saBtn.BorderSizePixel=0; saBtn.Text="Save As"
+saBtn.TextColor3=Color3.fromRGB(100,255,100); saBtn.TextSize=9; saBtn.Font=Enum.Font.GothamBold
+saBtn.ZIndex=32; saBtn.Parent=saveAsRow
+Instance.new("UICorner",saBtn).CornerRadius=UDim.new(0,6)
 
-local loaderTitleLbl = Instance.new("TextLabel")
-loaderTitleLbl.Size = UDim2.new(1,-36,1,0); loaderTitleLbl.Position = UDim2.new(0,10,0,0)
-loaderTitleLbl.BackgroundTransparency = 1; loaderTitleLbl.Text = "Config Loader"
-loaderTitleLbl.TextColor3 = Color3.fromRGB(120,180,255); loaderTitleLbl.TextSize = 11
-loaderTitleLbl.Font = Enum.Font.GothamBold; loaderTitleLbl.TextXAlignment = Enum.TextXAlignment.Left
-loaderTitleLbl.ZIndex = 32; loaderTitleLbl.Parent = loaderTitle
+local ldrStatus=Instance.new("TextLabel"); ldrStatus.Size=UDim2.new(1,-10,0,13)
+ldrStatus.Position=UDim2.new(0,5,0,62); ldrStatus.BackgroundTransparency=1; ldrStatus.Text=""
+ldrStatus.TextColor3=Color3.fromRGB(100,220,100); ldrStatus.TextSize=9; ldrStatus.Font=Enum.Font.Gotham
+ldrStatus.TextXAlignment=Enum.TextXAlignment.Center; ldrStatus.ZIndex=31; ldrStatus.Parent=loaderPanel
 
-local loaderCloseBtn = Instance.new("TextButton")
-loaderCloseBtn.Size = UDim2.new(0,20,0,20); loaderCloseBtn.Position = UDim2.new(1,-24,0,4)
-loaderCloseBtn.BackgroundColor3 = Color3.fromRGB(140,30,30); loaderCloseBtn.BorderSizePixel = 0
-loaderCloseBtn.Text = "×"; loaderCloseBtn.TextColor3 = Color3.fromRGB(255,255,255)
-loaderCloseBtn.TextSize = 14; loaderCloseBtn.Font = Enum.Font.GothamBold
-loaderCloseBtn.ZIndex = 32; loaderCloseBtn.Parent = loaderTitle
-Instance.new("UICorner", loaderCloseBtn).CornerRadius = UDim.new(0,4)
+local profilesList=Instance.new("ScrollingFrame")
+profilesList.Size=UDim2.new(1,-10,1,-80); profilesList.Position=UDim2.new(0,5,0,76)
+profilesList.BackgroundTransparency=1; profilesList.BorderSizePixel=0
+profilesList.ScrollBarThickness=2; profilesList.ScrollBarImageColor3=Color3.fromRGB(60,80,180)
+profilesList.CanvasSize=UDim2.new(0,0,0,0); profilesList.AutomaticCanvasSize=Enum.AutomaticSize.Y
+profilesList.ZIndex=31; profilesList.Parent=loaderPanel
+local pll=Instance.new("UIListLayout"); pll.SortOrder=Enum.SortOrder.LayoutOrder
+pll.Padding=UDim.new(0,4); pll.Parent=profilesList
+local plp=Instance.new("UIPadding"); plp.PaddingTop=UDim.new(0,2); plp.PaddingBottom=UDim.new(0,4)
+plp.PaddingLeft=UDim.new(0,2); plp.PaddingRight=UDim.new(0,2); plp.Parent=profilesList
 
--- Save As row
-local saveAsRow = Instance.new("Frame")
-saveAsRow.Size = UDim2.new(1,-10,0,30); saveAsRow.Position = UDim2.new(0,5,0,34)
-saveAsRow.BackgroundTransparency = 1; saveAsRow.ZIndex = 31; saveAsRow.Parent = loaderPanel
-
-local saveAsBox = Instance.new("TextBox")
-saveAsBox.Size = UDim2.new(1,-64,1,0); saveAsBox.BackgroundColor3 = Color3.fromRGB(20,20,45)
-saveAsBox.BorderSizePixel = 0; saveAsBox.Text = ""; saveAsBox.PlaceholderText = "Config name..."
-saveAsBox.PlaceholderColor3 = Color3.fromRGB(60,80,100); saveAsBox.TextColor3 = Color3.fromRGB(70,225,255)
-saveAsBox.TextSize = 10; saveAsBox.Font = Enum.Font.Gotham; saveAsBox.ClearTextOnFocus = false
-saveAsBox.ZIndex = 32; saveAsBox.Parent = saveAsRow
-Instance.new("UICorner", saveAsBox).CornerRadius = UDim.new(0,6)
-Instance.new("UIStroke", saveAsBox).Color = Color3.fromRGB(50,70,160)
-
-local saveAsBtn = Instance.new("TextButton")
-saveAsBtn.Size = UDim2.new(0,58,1,0); saveAsBtn.Position = UDim2.new(1,-58,0,0)
-saveAsBtn.BackgroundColor3 = Color3.fromRGB(15,70,15); saveAsBtn.BorderSizePixel = 0
-saveAsBtn.Text = "Save As"; saveAsBtn.TextColor3 = Color3.fromRGB(100,255,100)
-saveAsBtn.TextSize = 9; saveAsBtn.Font = Enum.Font.GothamBold; saveAsBtn.ZIndex = 32
-saveAsBtn.Parent = saveAsRow
-Instance.new("UICorner", saveAsBtn).CornerRadius = UDim.new(0,6)
-Instance.new("UIStroke", saveAsBtn).Color = Color3.fromRGB(30,120,30)
-
--- Status label
-local loaderStatusLbl = Instance.new("TextLabel")
-loaderStatusLbl.Size = UDim2.new(1,-10,0,14); loaderStatusLbl.Position = UDim2.new(0,5,0,67)
-loaderStatusLbl.BackgroundTransparency = 1; loaderStatusLbl.Text = ""
-loaderStatusLbl.TextColor3 = Color3.fromRGB(100,220,100); loaderStatusLbl.TextSize = 9
-loaderStatusLbl.Font = Enum.Font.Gotham; loaderStatusLbl.TextXAlignment = Enum.TextXAlignment.Center
-loaderStatusLbl.ZIndex = 31; loaderStatusLbl.Parent = loaderPanel
-
--- Profiles list
-local profilesList = Instance.new("ScrollingFrame")
-profilesList.Size = UDim2.new(1,-10,1,-88); profilesList.Position = UDim2.new(0,5,0,84)
-profilesList.BackgroundTransparency = 1; profilesList.BorderSizePixel = 0
-profilesList.ScrollBarThickness = 2; profilesList.ScrollBarImageColor3 = Color3.fromRGB(60,80,180)
-profilesList.CanvasSize = UDim2.new(0,0,0,0); profilesList.AutomaticCanvasSize = Enum.AutomaticSize.Y
-profilesList.ZIndex = 31; profilesList.Parent = loaderPanel
-
-local profilesLayout = Instance.new("UIListLayout")
-profilesLayout.SortOrder = Enum.SortOrder.LayoutOrder; profilesLayout.Padding = UDim.new(0,4)
-profilesLayout.Parent = profilesList
-
-local profilesPad = Instance.new("UIPadding")
-profilesPad.PaddingTop = UDim.new(0,2); profilesPad.PaddingBottom = UDim.new(0,4)
-profilesPad.PaddingLeft = UDim.new(0,2); profilesPad.PaddingRight = UDim.new(0,2)
-profilesPad.Parent = profilesList
-
-local loaderFlashThread = nil
-local function flashLoaderStatus(msg, color)
-    loaderStatusLbl.Text = msg; loaderStatusLbl.TextColor3 = color
-    if loaderFlashThread then task.cancel(loaderFlashThread) end
-    loaderFlashThread = task.delay(2.5, function() loaderStatusLbl.Text = "" end)
+local ldrFlashThread=nil
+local function flashLdr(msg,col)
+    ldrStatus.Text=msg; ldrStatus.TextColor3=col
+    if ldrFlashThread then task.cancel(ldrFlashThread) end
+    ldrFlashThread=task.delay(2.5,function() ldrStatus.Text="" end)
 end
 
-local function buildProfilesList()
-    for _, child in ipairs(profilesList:GetChildren()) do
-        if child:IsA("Frame") then child:Destroy() end
+local function buildProfiles()
+    for _,c in ipairs(profilesList:GetChildren()) do
+        if c:IsA("Frame") then c:Destroy() end
     end
-
-    local sortedNames = {}
-    for name in pairs(profiles) do table.insert(sortedNames, name) end
-    table.sort(sortedNames)
-
-    if #sortedNames == 0 then
-        local emptyLbl = Instance.new("TextLabel")
-        emptyLbl.Size = UDim2.new(1,0,0,30); emptyLbl.BackgroundTransparency = 1
-        emptyLbl.Text = "No saved configs yet."; emptyLbl.TextColor3 = Color3.fromRGB(70,80,120)
-        emptyLbl.TextSize = 10; emptyLbl.Font = Enum.Font.Gotham; emptyLbl.ZIndex = 32
-        emptyLbl.Parent = profilesList
-        return
+    local names={}; for n in pairs(profiles) do table.insert(names,n) end; table.sort(names)
+    if #names==0 then
+        local el=Instance.new("TextLabel"); el.Size=UDim2.new(1,0,0,28); el.BackgroundTransparency=1
+        el.Text="No saved configs."; el.TextColor3=Color3.fromRGB(70,80,120); el.TextSize=10
+        el.Font=Enum.Font.Gotham; el.ZIndex=32; el.Parent=profilesList; return
     end
-
-    for i, name in ipairs(sortedNames) do
-        local pRow = Instance.new("Frame")
-        pRow.Size = UDim2.new(1,0,0,32); pRow.BackgroundColor3 = Color3.fromRGB(13,13,28)
-        pRow.BorderSizePixel = 0; pRow.LayoutOrder = i; pRow.ZIndex = 32; pRow.Parent = profilesList
-        Instance.new("UICorner", pRow).CornerRadius = UDim.new(0,6)
-
-        local nameLbl = Instance.new("TextLabel")
-        nameLbl.Size = UDim2.new(1,-80,1,0); nameLbl.Position = UDim2.new(0,8,0,0)
-        nameLbl.BackgroundTransparency = 1; nameLbl.Text = name
-        nameLbl.TextColor3 = Color3.fromRGB(180,200,255); nameLbl.TextSize = 10
-        nameLbl.Font = Enum.Font.GothamMedium; nameLbl.TextXAlignment = Enum.TextXAlignment.Left
-        nameLbl.TextTruncate = Enum.TextTruncate.AtEnd; nameLbl.ZIndex = 33; nameLbl.Parent = pRow
-
-        -- Load button
-        local loadBtn = Instance.new("TextButton")
-        loadBtn.Size = UDim2.new(0,32,0,22); loadBtn.Position = UDim2.new(1,-76,0.5,-11)
-        loadBtn.BackgroundColor3 = Color3.fromRGB(15,50,100); loadBtn.BorderSizePixel = 0
-        loadBtn.Text = "Load"; loadBtn.TextColor3 = Color3.fromRGB(100,180,255)
-        loadBtn.TextSize = 9; loadBtn.Font = Enum.Font.GothamBold; loadBtn.ZIndex = 33
-        loadBtn.Parent = pRow
-        Instance.new("UICorner", loadBtn).CornerRadius = UDim.new(0,4)
-
-        -- Delete button
-        local delBtn = Instance.new("TextButton")
-        delBtn.Size = UDim2.new(0,32,0,22); delBtn.Position = UDim2.new(1,-38,0.5,-11)
-        delBtn.BackgroundColor3 = Color3.fromRGB(80,15,15); delBtn.BorderSizePixel = 0
-        delBtn.Text = "Del"; delBtn.TextColor3 = Color3.fromRGB(255,100,100)
-        delBtn.TextSize = 9; delBtn.Font = Enum.Font.GothamBold; delBtn.ZIndex = 33
-        delBtn.Parent = pRow
-        Instance.new("UICorner", delBtn).CornerRadius = UDim.new(0,4)
-
-        local capName = name
-        loadBtn.MouseButton1Click:Connect(function()
-            local pdata = profiles[capName]
-            if not pdata then return end
-            for k,v in pairs(pdata) do
-                if Cfg[k] ~= nil and typeof(v) == typeof(Cfg[k]) then
-                    Cfg[k] = v
+    for i,name in ipairs(names) do
+        local pr=Instance.new("Frame"); pr.Size=UDim2.new(1,0,0,30)
+        pr.BackgroundColor3=Color3.fromRGB(13,13,28); pr.BorderSizePixel=0
+        pr.LayoutOrder=i; pr.ZIndex=32; pr.Parent=profilesList
+        Instance.new("UICorner",pr).CornerRadius=UDim.new(0,6)
+        local nl=Instance.new("TextLabel"); nl.Size=UDim2.new(1,-76,1,0); nl.Position=UDim2.new(0,8,0,0)
+        nl.BackgroundTransparency=1; nl.Text=name; nl.TextColor3=Color3.fromRGB(180,200,255)
+        nl.TextSize=10; nl.Font=Enum.Font.GothamMedium; nl.TextXAlignment=Enum.TextXAlignment.Left
+        nl.TextTruncate=Enum.TextTruncate.AtEnd; nl.ZIndex=33; nl.Parent=pr
+        local lb=Instance.new("TextButton"); lb.Size=UDim2.new(0,32,0,20); lb.Position=UDim2.new(1,-72,0.5,-10)
+        lb.BackgroundColor3=Color3.fromRGB(15,50,100); lb.BorderSizePixel=0; lb.Text="Load"
+        lb.TextColor3=Color3.fromRGB(100,180,255); lb.TextSize=9; lb.Font=Enum.Font.GothamBold
+        lb.ZIndex=33; lb.Parent=pr; Instance.new("UICorner",lb).CornerRadius=UDim.new(0,4)
+        local db=Instance.new("TextButton"); db.Size=UDim2.new(0,32,0,20); db.Position=UDim2.new(1,-34,0.5,-10)
+        db.BackgroundColor3=Color3.fromRGB(80,15,15); db.BorderSizePixel=0; db.Text="Del"
+        db.TextColor3=Color3.fromRGB(255,100,100); db.TextSize=9; db.Font=Enum.Font.GothamBold
+        db.ZIndex=33; db.Parent=pr; Instance.new("UICorner",db).CornerRadius=UDim.new(0,4)
+        local cap=name
+        lb.MouseButton1Click:Connect(function()
+            local pd=profiles[cap]; if not pd then return end
+            for k,v in pairs(pd) do
+                if Cfg[k]~=nil and typeof(v)==typeof(Cfg[k]) then Cfg[k]=v
                     if sliderUpdaters[k] then sliderUpdaters[k](v) end
                     if toggleRefreshers[k] then toggleRefreshers[k](v) end
                 end
             end
-            -- refresh keybind btns
-            for idx, kb in pairs(keybindBtns) do
-                kb.btn.Text = Cfg[kb.cfgKey]
-            end
-            -- refresh GUI mode
-            rectFrame.Visible = (Cfg.GUI_MODE == "rectangle")
-            boxFrame.Visible  = (Cfg.GUI_MODE == "box")
-            saveConfig()
-            flashLoaderStatus('Loaded "'..capName..'"', Color3.fromRGB(100,255,100))
+            for _,kb in pairs(keybindBtns) do kb.btn.Text=Cfg[kb.cfgKey] end
+            rectFrame.Visible=(Cfg.GUI_MODE=="rectangle"); boxFrame.Visible=(Cfg.GUI_MODE=="box")
+            minimapFrame.Visible=Cfg.SHOW_MINIMAP; saveConfig()
+            flashLdr('Loaded "'..cap..'"',Color3.fromRGB(100,255,100))
+            showToast('Config "'..cap..'" loaded',"success")
         end)
-
-        delBtn.MouseButton1Click:Connect(function()
-            profiles[capName] = nil
-            saveProfiles()
-            buildProfilesList()
-            flashLoaderStatus('Deleted "'..capName..'"', Color3.fromRGB(255,160,80))
+        db.MouseButton1Click:Connect(function()
+            profiles[cap]=nil; saveProfiles(); buildProfiles()
+            flashLdr('Deleted "'..cap..'"',Color3.fromRGB(255,160,80))
+            showToast('Config "'..cap..'" deleted',"warning")
         end)
     end
 end
 
-buildProfilesList()
-
-saveAsBtn.MouseButton1Click:Connect(function()
-    local name = saveAsBox.Text:match("^%s*(.-)%s*$")
-    if name == "" then flashLoaderStatus("Enter a config name!", Color3.fromRGB(255,100,100)); return end
-    profiles[name] = deepCopy(Cfg)
-    saveProfiles(); buildProfilesList()
-    saveAsBox.Text = ""
-    flashLoaderStatus('Saved as "'..name..'"', Color3.fromRGB(100,255,100))
+buildProfiles()
+saBtn.MouseButton1Click:Connect(function()
+    local n=saBox.Text:match("^%s*(.-)%s*$")
+    if n=="" then flashLdr("Enter a name!",Color3.fromRGB(255,100,100)); return end
+    profiles[n]=deepCopy(Cfg); saveProfiles(); buildProfiles()
+    saBox.Text=""; flashLdr('Saved as "'..n..'"',Color3.fromRGB(100,255,100))
+    showToast('Saved config "'..n..'"',"success")
 end)
-
-loaderCloseBtn.MouseButton1Click:Connect(function()
-    loaderPanel.Visible = false
-end)
-
--- =====================
--- BUILD CONFIG ROWS
--- =====================
-makeSectionHeader("MOVEMENT", 1)
-makeSlider("Walk Speed",    "MOONWALK_SPEED",  2,    30,   1, 2)
-makeSlider("Swing Width",   "SWING_WIDTH",     0,    15,   2, 3)
-makeSlider("Max Yaw",       "MAX_YAW",         0,    60,   1, 4)
-makeSlider("Lerp Factor",   "LERP_FACTOR",     0.01, 0.5,  2, 5)
-makeSlider("Step Interval", "STEP_INTERVAL",   0.04, 0.4,  2, 6)
-makeSlider("Turn Speed",    "TURN_LERP",       0.01, 0.2,  2, 7)
-
-makeSectionHeader("MODE", 8)
-makeToggleRow("Front Facing",   "FRONT_FACING",   9)
-
-makeSectionHeader("KEYBINDS", 10)
-makeKeybindRow("Toggle Key 1",  "1", 11)
-makeKeybindRow("Toggle Key 2",  "2", 12)
-
-makeSectionHeader("GUI", 13)
--- GUI mode toggle: we fake a boolean key to drive it
-Cfg.GUI_MODE_BOX = (Cfg.GUI_MODE == "box")
-makeToggleRow("Small Box Mode", "GUI_MODE_BOX", 14)
-
-makeSectionHeader("SAVING", 15)
-makeToggleRow("Auto Save Config", "AUTO_SAVE", 16)
-
--- Config Loader button row
-local loaderBtnWrapper = Instance.new("Frame")
-loaderBtnWrapper.Size = UDim2.new(1,0,0,36); loaderBtnWrapper.BackgroundColor3 = Color3.fromRGB(13,13,28)
-loaderBtnWrapper.BorderSizePixel = 0; loaderBtnWrapper.LayoutOrder = 17; loaderBtnWrapper.ZIndex = 22
-loaderBtnWrapper.Parent = contentFrame
-Instance.new("UICorner", loaderBtnWrapper).CornerRadius = UDim.new(0,6)
-
-local loaderOpenBtn = Instance.new("TextButton")
-loaderOpenBtn.Size = UDim2.new(1,-16,0,24); loaderOpenBtn.Position = UDim2.new(0,8,0.5,-12)
-loaderOpenBtn.BackgroundColor3 = Color3.fromRGB(15,50,100); loaderOpenBtn.BorderSizePixel = 0
-loaderOpenBtn.Text = "Open Config Loader"; loaderOpenBtn.TextColor3 = Color3.fromRGB(100,180,255)
-loaderOpenBtn.TextSize = 10; loaderOpenBtn.Font = Enum.Font.GothamBold; loaderOpenBtn.ZIndex = 23
-loaderOpenBtn.Parent = loaderBtnWrapper
-Instance.new("UICorner", loaderOpenBtn).CornerRadius = UDim.new(0,6)
-Instance.new("UIStroke", loaderOpenBtn).Color = Color3.fromRGB(30,80,160)
 
 loaderOpenBtn.MouseButton1Click:Connect(function()
-    loaderPanel.Visible = not loaderPanel.Visible
-    if loaderPanel.Visible then buildProfilesList() end
+    loaderPanel.Visible=not loaderPanel.Visible
+    if loaderPanel.Visible then buildProfiles() end
 end)
 
 -- =====================
--- SAVE / RESET
+-- SAVE / RESET BUTTONS
 -- =====================
-local saveFlashThread = nil
-local function flashSaveLabel(msg, color)
-    cfgSaveLbl.Text = msg; cfgSaveLbl.TextColor3 = color
-    if saveFlashThread then task.cancel(saveFlashThread) end
-    saveFlashThread = task.delay(2.5, function() cfgSaveLbl.Text = "" end)
+local saveFlashThr=nil
+local function flashSave(msg,col)
+    cfgSaveLbl.Text=msg; cfgSaveLbl.TextColor3=col
+    if saveFlashThr then task.cancel(saveFlashThr) end
+    saveFlashThr=task.delay(2.5,function() cfgSaveLbl.Text="" end)
 end
 
 saveBtn.MouseButton1Click:Connect(function()
-    saveConfig(); flashSaveLabel("Config saved!", Color3.fromRGB(100,255,100))
+    saveConfig(); flashSave("Config saved!",Color3.fromRGB(100,255,100))
+    showToast("Config saved!","success")
 end)
 
 resetBtn.MouseButton1Click:Connect(function()
-    for k,v in pairs(DEFAULTS) do
-        Cfg[k] = v
+    for k,v in pairs(DEFAULTS) do Cfg[k]=v
         if sliderUpdaters[k] then sliderUpdaters[k](v) end
         if toggleRefreshers[k] then toggleRefreshers[k](v) end
     end
-    Cfg.GUI_MODE_BOX = (Cfg.GUI_MODE == "box")
-    if toggleRefreshers["GUI_MODE_BOX"] then toggleRefreshers["GUI_MODE_BOX"](Cfg.GUI_MODE_BOX) end
-    rectFrame.Visible = (Cfg.GUI_MODE == "rectangle")
-    boxFrame.Visible  = (Cfg.GUI_MODE == "box")
-    for _, kb in pairs(keybindBtns) do kb.btn.Text = Cfg[kb.cfgKey] end
-    saveConfig(); flashSaveLabel("Reset to defaults!", Color3.fromRGB(255,180,80))
+    for _,kb in pairs(keybindBtns) do kb.btn.Text=Cfg[kb.cfgKey] end
+    rectFrame.Visible=(Cfg.GUI_MODE=="rectangle"); boxFrame.Visible=(Cfg.GUI_MODE=="box")
+    minimapFrame.Visible=Cfg.SHOW_MINIMAP
+    saveConfig(); flashSave("Reset to defaults!",Color3.fromRGB(255,180,80))
+    showToast("Reset to defaults","warning")
 end)
 
 -- =====================
 -- PANEL OPEN / CLOSE
 -- =====================
 local function getActiveFrame()
-    return Cfg.GUI_MODE == "box" and boxFrame or rectFrame
+    return Cfg.GUI_MODE=="box" and boxFrame or rectFrame
 end
 
 local function setCfgOpen(val)
-    cfgOpen = val; cfgPanel.Visible = val
-    local af = getActiveFrame()
-    local plusB = Cfg.GUI_MODE == "box" and boxPlusBtn or rectPlusBtn
-    local plusS = Cfg.GUI_MODE == "box" and boxPlusStroke or rectPlusStroke
-    plusB.Text = val and "−" or "+"
-    plusB.TextColor3 = val and Color3.fromRGB(255,100,100) or Color3.fromRGB(120,180,255)
-    plusS.Color = val and Color3.fromRGB(180,50,50) or Color3.fromRGB(60,80,180)
-    plusB.BackgroundColor3 = val and Color3.fromRGB(40,10,10) or Color3.fromRGB(18,18,40)
-
-    -- Reposition cfg panel relative to active toggle frame
-    local fp = af.Position
-    cfgPanel.Position = UDim2.new(fp.X.Scale, fp.X.Offset - 67, fp.Y.Scale, fp.Y.Offset - 430)
+    cfgOpen=val; cfgPanel.Visible=val
+    local pB = Cfg.GUI_MODE=="box" and boxPlus or rectPlus
+    local pS = Cfg.GUI_MODE=="box" and boxPlusS or rectPlusS
+    local t  = getTheme()
+    pB.Text = val and "−" or "+"
+    pB.TextColor3 = val and Color3.fromRGB(255,100,100) or t.accent
+    pS.Color = val and Color3.fromRGB(180,50,50) or t.stroke
+    pB.BackgroundColor3 = val and Color3.fromRGB(40,10,10) or Color3.fromRGB(18,18,40)
+    local af=getActiveFrame()
+    cfgPanel.Position=UDim2.new(af.Position.X.Scale, af.Position.X.Offset-67,
+        af.Position.Y.Scale, af.Position.Y.Offset-410)
 end
 
-rectPlusBtn.MouseButton1Click:Connect(function() setCfgOpen(not cfgOpen) end)
-boxPlusBtn.MouseButton1Click:Connect(function() setCfgOpen(not cfgOpen) end)
-cfgCloseBtn.MouseButton1Click:Connect(function() setCfgOpen(false) end)
-
--- =====================
--- UI REFRESH
--- =====================
-local function refreshUI()
-    local isOn = moonwalkActive
-    -- rect
-    rectStroke.Color = isLocked and Color3.fromRGB(255,200,40) or (isOn and Color3.fromRGB(70,200,255) or Color3.fromRGB(55,55,155))
-    rectGlow.ImageColor3 = isOn and Color3.fromRGB(50,170,255) or Color3.fromRGB(45,45,190)
-    rectStatusLbl.Text = isOn and "ON" or "OFF"
-    rectStatusLbl.TextColor3 = isOn and Color3.fromRGB(70,225,255) or Color3.fromRGB(90,90,90)
-    rectMoonImg.ImageColor3 = isOn and Color3.fromRGB(70,225,255) or Color3.fromRGB(100,100,160)
-    rectMoonFallback.TextColor3 = isOn and Color3.fromRGB(70,225,255) or Color3.fromRGB(100,100,160)
-    rectLockHolder.Visible = isLocked
-    -- box
-    boxStroke.Color = isLocked and Color3.fromRGB(255,200,40) or (isOn and Color3.fromRGB(70,200,255) or Color3.fromRGB(55,55,155))
-    boxGlow.ImageColor3 = isOn and Color3.fromRGB(50,170,255) or Color3.fromRGB(45,45,190)
-    boxStatusLbl.Text = isOn and "ON" or "OFF"
-    boxStatusLbl.TextColor3 = isOn and Color3.fromRGB(70,225,255) or Color3.fromRGB(90,90,90)
-    boxMoonImg.ImageColor3 = isOn and Color3.fromRGB(70,225,255) or Color3.fromRGB(100,100,160)
-    boxMoonFallback.TextColor3 = isOn and Color3.fromRGB(70,225,255) or Color3.fromRGB(100,100,160)
-end
+rectPlus.MouseButton1Click:Connect(function() setCfgOpen(not cfgOpen) end)
+boxPlus.MouseButton1Click:Connect(function() setCfgOpen(not cfgOpen) end)
+cfgClose.MouseButton1Click:Connect(function() setCfgOpen(false) end)
 
 -- =====================
 -- APPLY STATE
 -- =====================
 local function applyToCharacter()
-    local hum = getHum(); if not hum then return end
+    local hum=getHum(); if not hum then return end
     if moonwalkActive then
-        savedWalkSpeed = hum.WalkSpeed
-        local s = Vector3.new(camera.CFrame.LookVector.X, 0, camera.CFrame.LookVector.Z)
-        if s.Magnitude > 0.01 then currentFwd = s.Unit end
+        savedWalkSpeed=hum.WalkSpeed
+        local s=Vector3.new(camera.CFrame.LookVector.X,0,camera.CFrame.LookVector.Z)
+        if s.Magnitude>0.01 then currentFwd=s.Unit end
+        updateWallRayParams()
     end
-    hum.AutoRotate = not moonwalkActive
-    hum.WalkSpeed  = moonwalkActive and Cfg.MOONWALK_SPEED or savedWalkSpeed
+    hum.AutoRotate=not moonwalkActive
+    hum.WalkSpeed=moonwalkActive and Cfg.MOONWALK_SPEED or savedWalkSpeed
 end
 
 -- =====================
--- DRAG + HOLD LOGIC (shared for both frames)
+-- UI REFRESH
 -- =====================
-local progressBar  -- active progress bar reference
-local dragging, dragStart, startPos = false, nil, nil
+local function refreshUI()
+    local on=moonwalkActive; local t=getTheme()
+    local ac = on and t.accent or Color3.fromRGB(90,90,90)
+    local sc = isLocked and Color3.fromRGB(255,200,40) or (on and t.accent or t.stroke)
+    rectStroke.Color=sc; rectGlow.ImageColor3=on and t.glow or Color3.fromRGB(45,45,190)
+    rectStatus.Text=on and "ON" or "OFF"; rectStatus.TextColor3=ac
+    rectMoonImg.ImageColor3=on and t.accent or Color3.fromRGB(100,100,160)
+    rectMoonFb.TextColor3=on and t.accent or Color3.fromRGB(100,100,160)
+    rectLockH.Visible=isLocked
+    boxStroke.Color=sc; boxGlow.ImageColor3=on and t.glow or Color3.fromRGB(45,45,190)
+    boxStatus.Text=on and "ON" or "OFF"; boxStatus.TextColor3=ac
+    boxMoonImg.ImageColor3=on and t.accent or Color3.fromRGB(100,100,160)
+    boxMoonFb.TextColor3=on and t.accent or Color3.fromRGB(100,100,160)
+    -- Direction arrow color
+    dirArrow.BackgroundColor3 = on and t.accent or Color3.fromRGB(60,70,100)
+end
+
+-- =====================
+-- DRAG + HOLD
+-- =====================
+local dragging,dragStart,startPos=false,nil,nil
 
 local function cancelHold()
-    isHolding = false; holdTimer = 0
-    if progressBar then progressBar.Size = UDim2.new(0,0,1,0) end
+    isHolding=false; holdTimer=0
+    if progressBar then progressBar.Size=UDim2.new(0,0,1,0) end
 end
 
-local function handleInputBegan(inp, progBar)
-    if inp.UserInputType ~= Enum.UserInputType.Touch
-    and inp.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
-    if activeInput ~= nil then return end
-    activeInput = inp; isHolding = true; holdTimer = 0
-    dragStart = inp.Position; startPos = getActiveFrame().Position
-    dragging = false; tapConsumed = false; progressBar = progBar
+local function handleInputBegan(inp, progB)
+    if inp.UserInputType~=Enum.UserInputType.Touch
+    and inp.UserInputType~=Enum.UserInputType.MouseButton1 then return end
+    if activeInput~=nil then return end
+    activeInput=inp; isHolding=true; holdTimer=0
+    dragStart=inp.Position; startPos=getActiveFrame().Position
+    dragging=false; tapConsumed=false; progressBar=progB
 end
 
-rectTapBtn.InputBegan:Connect(function(inp) handleInputBegan(inp, rectProgBar) end)
-boxTapBtn.InputBegan:Connect(function(inp) handleInputBegan(inp, boxProgBar) end)
+rectTap.InputBegan:Connect(function(inp) handleInputBegan(inp,rectProgBar) end)
+boxTap.InputBegan:Connect(function(inp) handleInputBegan(inp,boxProgBar) end)
 
 UserInputService.InputChanged:Connect(function(inp)
-    if inp ~= activeInput then return end
+    if inp~=activeInput then return end
     if not isHolding then return end
-    local d = inp.Position - dragStart
-    local dist = math.sqrt(d.X^2+d.Y^2)
-    if dist > DRAG_THRESHOLD then
+    local d=inp.Position-dragStart
+    local dist=math.sqrt(d.X^2+d.Y^2)
+    if dist>DRAG_THRESHOLD then
         if not dragging then
-            dragging = true; holdTimer = 0
-            if progressBar then progressBar.Size = UDim2.new(0,0,1,0) end
+            dragging=true; holdTimer=0
+            if progressBar then progressBar.Size=UDim2.new(0,0,1,0) end
         end
     end
     if dragging and not isLocked then
-        local af = getActiveFrame()
-        af.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset+d.X, startPos.Y.Scale, startPos.Y.Offset+d.Y)
+        local af=getActiveFrame()
+        af.Position=UDim2.new(startPos.X.Scale,startPos.X.Offset+d.X,startPos.Y.Scale,startPos.Y.Offset+d.Y)
         if cfgPanel.Visible then
-            cfgPanel.Position = UDim2.new(af.Position.X.Scale, af.Position.X.Offset-67, af.Position.Y.Scale, af.Position.Y.Offset-430)
+            cfgPanel.Position=UDim2.new(af.Position.X.Scale,af.Position.X.Offset-67,
+                af.Position.Y.Scale,af.Position.Y.Offset-410)
         end
     end
 end)
 
 UserInputService.InputEnded:Connect(function(inp)
-    if inp ~= activeInput then return end
-    local wasDragging = dragging; local heldTime = holdTimer
-    dragging = false; activeInput = nil; cancelHold()
-    if not tapConsumed and not wasDragging and heldTime < LOCK_HOLD_TIME then
-        tapConsumed = true
-        moonwalkActive = not moonwalkActive
+    if inp~=activeInput then return end
+    local wd=dragging; local ht=holdTimer
+    dragging=false; activeInput=nil; cancelHold()
+    if not tapConsumed and not wd and ht<LOCK_HOLD_TIME then
+        tapConsumed=true; moonwalkActive=not moonwalkActive
         stepTimer=0; stepSide=1; elapsedTime=0
+        humanSpeedCurrent=Cfg.MOONWALK_SPEED; humanSpeedTarget=Cfg.MOONWALK_SPEED
         applyToCharacter(); refreshUI()
+        showToast("Moonwalk "..(moonwalkActive and "ON" or "OFF"), moonwalkActive and "success" or "info")
     end
 end)
 
 -- =====================
--- KEYBOARD TOGGLE + KEYBIND LISTEN
+-- KEYBOARD
 -- =====================
-UserInputService.InputBegan:Connect(function(inp, gp)
+UserInputService.InputBegan:Connect(function(inp,gp)
     if gp then return end
-
-    -- Keybind capture mode
     if listeningKeybind then
-        if inp.UserInputType == Enum.UserInputType.Keyboard then
-            local keyName = inp.KeyCode.Name
-            local kbData = keybindBtns[listeningKeybind]
-            if kbData then
-                Cfg[kbData.cfgKey] = keyName
-                kbData.btn.Text = keyName
-                kbData.btn.TextColor3 = Color3.fromRGB(70,225,255)
-                TweenService:Create(kbData.stroke,TweenInfo.new(0.15),{Color=Color3.fromRGB(50,70,160)}):Play()
+        if inp.UserInputType==Enum.UserInputType.Keyboard then
+            local kn=inp.KeyCode.Name
+            local kb=keybindBtns[listeningKeybind]
+            if kb then Cfg[kb.cfgKey]=kn; kb.btn.Text=kn; kb.btn.TextColor3=Color3.fromRGB(70,225,255)
+                TweenService:Create(kb.stroke,TweenInfo.new(0.15),{Color=Color3.fromRGB(50,70,160)}):Play()
             end
-            listeningKeybind = nil
-            autoSave()
-            return
+            listeningKeybind=nil; autoSave()
+            showToast("Keybind "..listeningKeybind.." → "..kn,"info")
         end
+        return
     end
-
-    -- Normal toggle
-    if inp.UserInputType == Enum.UserInputType.Keyboard then
-        local keyName = inp.KeyCode.Name
-        if keyName == Cfg.KEYBIND_1 or keyName == Cfg.KEYBIND_2 then
-            moonwalkActive = not moonwalkActive
-            stepTimer=0; stepSide=1; elapsedTime=0
+    if inp.UserInputType==Enum.UserInputType.Keyboard then
+        local kn=inp.KeyCode.Name
+        if kn==Cfg.KEYBIND_1 or kn==Cfg.KEYBIND_2 then
+            moonwalkActive=not moonwalkActive; stepTimer=0; stepSide=1; elapsedTime=0
+            humanSpeedCurrent=Cfg.MOONWALK_SPEED; humanSpeedTarget=Cfg.MOONWALK_SPEED
             applyToCharacter(); refreshUI()
+            showToast("Moonwalk "..(moonwalkActive and "ON" or "OFF"), moonwalkActive and "success" or "info")
         end
     end
 end)
 
 -- =====================
--- RESPAWN HANDLER
+-- RESPAWN
 -- =====================
 local function onCharacterAdded(newChar)
     newChar:WaitForChild("HumanoidRootPart"); newChar:WaitForChild("Humanoid")
-    task.wait(0.5); stepTimer=0; stepSide=1; elapsedTime=0; applyToCharacter()
+    task.wait(0.5); stepTimer=0; stepSide=1; elapsedTime=0
+    humanSpeedCurrent=Cfg.MOONWALK_SPEED; applyToCharacter(); updateWallRayParams()
 end
-
 player.CharacterAdded:Connect(onCharacterAdded)
 if player.Character then task.spawn(function() onCharacterAdded(player.Character) end) end
 
 -- =====================
--- HOLD TIMER LOOP
+-- HEARTBEAT — hold timer + smooth alpha
 -- =====================
 RunService.Heartbeat:Connect(function(dt)
-    if not isHolding or dragging then return end
-    holdTimer = holdTimer + dt
-    if progressBar then progressBar.Size = UDim2.new(math.clamp(holdTimer/LOCK_HOLD_TIME,0,1),0,1,0) end
-    if holdTimer >= LOCK_HOLD_TIME then
-        isLocked = not isLocked; cancelHold(); refreshUI()
+    -- Smooth toggle alpha
+    local alphaTarget = moonwalkActive and 1 or 0
+    smoothAlpha = smoothAlpha + (alphaTarget - smoothAlpha) * math.min(dt*SMOOTH_SPEED, 1)
+
+    -- Hold lock timer
+    if isHolding and not dragging then
+        holdTimer=holdTimer+dt
+        if progressBar then
+            progressBar.Size=UDim2.new(math.clamp(holdTimer/LOCK_HOLD_TIME,0,1),0,1,0)
+        end
+        if holdTimer>=LOCK_HOLD_TIME then
+            isLocked=not isLocked; cancelHold(); refreshUI()
+            showToast(isLocked and "Position Locked 🔒" or "Position Unlocked","warning")
+        end
     end
+
+    -- Wall cooldown
+    if wallCooldown>0 then wallCooldown=wallCooldown-dt end
 end)
 
 -- =====================
--- MAIN LOOP
+-- RENDER STEPPED — main loop + minimap
 -- =====================
 RunService.RenderStepped:Connect(function(dt)
-    if not moonwalkActive then return end
-    local hrp = getHRP(); local hum = getHum()
-    if not hrp or not hum or hum.Health <= 0 then return end
+    local hrp=getHRP(); local hum=getHum()
 
-    if hum.WalkSpeed ~= Cfg.MOONWALK_SPEED then hum.WalkSpeed = Cfg.MOONWALK_SPEED end
+    -- Minimap update (independent of moonwalk state)
+    if Cfg.SHOW_MINIMAP and hrp then
+        local camY = camera.CFrame.LookVector
+        local camFwd = Vector3.new(camY.X,0,camY.Z)
+        if camFwd.Magnitude < 0.01 then camFwd = Vector3.new(0,0,-1) end
+        camFwd = camFwd.Unit
+        local camRight = Vector3.new(camFwd.Z,0,-camFwd.X)
 
-    stepTimer+=dt; elapsedTime+=dt
-    if stepTimer >= Cfg.STEP_INTERVAL then stepTimer=0; stepSide=-stepSide end
+        -- Direction arrow rotation based on moonwalk direction
+        if moonwalkActive then
+            local moveFwd = Cfg.FRONT_FACING and currentFwd or -currentFwd
+            local screenX = moveFwd:Dot(camRight)
+            local screenZ = moveFwd:Dot(camFwd)
+            local angle = math.deg(math.atan2(screenX,-screenZ))
+            dirArrow.Rotation = angle
+            dirArrow.Visible = true
+        else
+            dirArrow.Visible = false
+        end
 
-    local camLook = camera.CFrame.LookVector
-    local targetFwd = Vector3.new(camLook.X,0,camLook.Z)
-    if targetFwd.Magnitude > 0.01 then currentFwd = currentFwd:Lerp(targetFwd.Unit, Cfg.TURN_LERP) end
-    local fwd = currentFwd.Magnitude > 0.01 and currentFwd.Unit or targetFwd.Unit
-    local rightVec = Vector3.new(fwd.Z,0,-fwd.X)
-    local sineVal = math.sin(elapsedTime/(Cfg.STEP_INTERVAL*2)*2*math.pi)
+        -- Raycast 16 directions for walls
+        for i=1, MINIMAP_DIRS do
+            local angle = (i-1) * (2*math.pi/MINIMAP_DIRS)
+            -- World direction for this ray
+            local wx = math.sin(angle)
+            local wz = math.cos(angle)
+            local worldDir = camRight*wx + camFwd*(-wz)
+            worldDir = Vector3.new(worldDir.X,0,worldDir.Z)
+            if worldDir.Magnitude < 0.01 then
+                wallBlips[i].Visible=false; continue
+            end
+            worldDir = worldDir.Unit
 
-    local vel, faceFwd
-    if Cfg.FRONT_FACING then
-        vel = fwd * Cfg.MOONWALK_SPEED + rightVec * sineVal * Cfg.SWING_WIDTH
-        faceFwd = -fwd
+            local rayResult = workspace:Raycast(
+                hrp.Position + Vector3.new(0,1,0),
+                worldDir * MINIMAP_RADIUS,
+                wallRayParams
+            )
+
+            local blip = wallBlips[i]
+            if rayResult then
+                local dist = rayResult.Distance
+                local t = math.clamp(dist/MINIMAP_RADIUS, 0, 1)
+                -- Map to minimap screen space
+                local sx = math.sin(angle)
+                local sz = -math.cos(angle)
+                local bx = mmCX + sx * (t * mmDrawR)
+                local bz = mmCY + sz * (t * mmDrawR)
+                blip.Position = UDim2.new(0,bx,0,bz)
+                -- Color: red=close, yellow=mid, green=far
+                if dist < MINIMAP_RADIUS*0.25 then
+                    blip.BackgroundColor3=Color3.fromRGB(255,60,60)
+                    blip.Size=UDim2.new(0,5,0,5)
+                elseif dist < MINIMAP_RADIUS*0.6 then
+                    blip.BackgroundColor3=Color3.fromRGB(255,200,60)
+                    blip.Size=UDim2.new(0,4,0,4)
+                else
+                    blip.BackgroundColor3=Color3.fromRGB(60,200,100)
+                    blip.Size=UDim2.new(0,3,0,3)
+                end
+                blip.Visible=true
+            else
+                blip.Visible=false
+            end
+        end
     else
-        vel = -fwd * Cfg.MOONWALK_SPEED + rightVec * sineVal * Cfg.SWING_WIDTH
-        faceFwd = fwd
+        for _,b in ipairs(wallBlips) do b.Visible=false end
+        dirArrow.Visible=false
     end
 
-    hrp.AssemblyLinearVelocity = hrp.AssemblyLinearVelocity:Lerp(
-        Vector3.new(vel.X, hrp.AssemblyLinearVelocity.Y, vel.Z), Cfg.LERP_FACTOR)
+    -- Main moonwalk (skip if nearly off)
+    if smoothAlpha < 0.01 then return end
+    if not hrp or not hum or hum.Health<=0 then return end
 
-    local faceCF = CFrame.new(hrp.Position, hrp.Position + faceFwd)
+    -- Force walkspeed
+    if hum.WalkSpeed~=Cfg.MOONWALK_SPEED then hum.WalkSpeed=Cfg.MOONWALK_SPEED end
+
+    stepTimer+=dt; elapsedTime+=dt
+    if stepTimer>=Cfg.STEP_INTERVAL then stepTimer=0; stepSide=-stepSide end
+
+    -- Camera direction lerp
+    local camLook=camera.CFrame.LookVector
+    local targetFwd=Vector3.new(camLook.X,0,camLook.Z)
+    if targetFwd.Magnitude>0.01 then
+        currentFwd=currentFwd:Lerp(targetFwd.Unit, Cfg.TURN_LERP)
+    end
+    local fwd = currentFwd.Magnitude>0.01 and currentFwd.Unit or targetFwd.Unit
+
+    -- Humanized turning — add noise to fwd
+    if Cfg.HUMANIZE_TURNING then
+        local noise=Vector3.new(
+            math.sin(elapsedTime*1.37+0.63)*Cfg.TURN_NOISE,
+            0,
+            math.cos(elapsedTime*0.89+1.21)*Cfg.TURN_NOISE
+        )
+        local noisyFwd=fwd+noise
+        if noisyFwd.Magnitude>0.01 then fwd=noisyFwd.Unit end
+    end
+
+    -- Anti-detect offset
+    if Cfg.ANTI_DETECT then
+        antiTimer+=dt
+        if antiTimer>=math.random(20,45)*0.1 then
+            antiTimer=0
+            antiOffset.speed = math.random(-8,8)*0.1
+            antiOffset.swing = math.random(-5,5)*0.1
+            antiOffset.yaw   = math.random(-4,4)*1.0
+        end
+    else
+        antiOffset={speed=0,swing=0,yaw=0}
+    end
+
+    -- Humanized speed — interpolate between 3 phases
+    local effectiveSpeed
+    if Cfg.HUMANIZE_SPEED then
+        humanSpeedTimer+=dt
+        local changeInterval = math.random(15,40)*0.1 -- 1.5s–4s
+        if humanSpeedTimer>=changeInterval then
+            humanSpeedTimer=0
+            humanSpeedPhase=(humanSpeedPhase%3)+1
+            local phases={Cfg.SPEED_1, Cfg.SPEED_2, Cfg.SPEED_3}
+            humanSpeedTarget=phases[humanSpeedPhase]
+        end
+        humanSpeedCurrent=humanSpeedCurrent+(humanSpeedTarget-humanSpeedCurrent)*math.min(dt*1.5,1)
+        effectiveSpeed=humanSpeedCurrent+antiOffset.speed
+    else
+        effectiveSpeed=Cfg.MOONWALK_SPEED+antiOffset.speed
+    end
+
+    local effectiveSwing = Cfg.SWING_WIDTH+antiOffset.swing
+    local effectiveYaw   = Cfg.MAX_YAW+antiOffset.yaw
+
+    -- Wall detection
+    if Cfg.WALL_AUTO_OFF and moonwalkActive and wallCooldown<=0 then
+        local moveDir = Cfg.FRONT_FACING and fwd or -fwd
+        local rayResult=workspace:Raycast(
+            hrp.Position+Vector3.new(0,1,0),
+            moveDir*3.5,
+            wallRayParams
+        )
+        if rayResult then
+            moonwalkActive=false; smoothAlpha=0; wallCooldown=1.5
+            applyToCharacter(); refreshUI()
+            showToast("Wall hit — Moonwalk OFF","warning")
+            return
+        end
+    end
+
+    -- Velocity calculation
+    local rightVec=Vector3.new(fwd.Z,0,-fwd.X)
+    local sineVal=math.sin(elapsedTime/(Cfg.STEP_INTERVAL*2)*2*math.pi)
+    local sideVel=rightVec*sineVal*effectiveSwing
+
+    local moveVel
+    if Cfg.FRONT_FACING then
+        moveVel=fwd*effectiveSpeed
+    else
+        moveVel=-fwd*effectiveSpeed
+    end
+
+    local targetVel=Vector3.new(
+        moveVel.X+sideVel.X,
+        hrp.AssemblyLinearVelocity.Y,
+        moveVel.Z+sideVel.Z
+    )
+
+    -- Apply smooth alpha scale
+    local scaledVel=Vector3.new(
+        targetVel.X*smoothAlpha,
+        hrp.AssemblyLinearVelocity.Y,
+        targetVel.Z*smoothAlpha
+    )
+
+    hrp.AssemblyLinearVelocity=hrp.AssemblyLinearVelocity:Lerp(scaledVel, Cfg.LERP_FACTOR)
+
+    -- HRP rotation
+    local faceFwd = Cfg.FRONT_FACING and -fwd or fwd
+    local faceCF  = CFrame.new(hrp.Position, hrp.Position+faceFwd)
     hrp.CFrame = CFrame.new(hrp.Position)
         * CFrame.fromMatrix(Vector3.new(), faceCF.RightVector, faceCF.UpVector)
-        * CFrame.Angles(0, math.rad(sineVal*Cfg.MAX_YAW), 0)
+        * CFrame.Angles(0, math.rad(sineVal*effectiveYaw), 0)
 end)
 
 refreshUI()
-print("🌙 Moonwalk Loaded | Keybind: "..Cfg.KEYBIND_1.."/"..Cfg.KEYBIND_2.." | Tahan 0.8s = Lock")
+print("🌙 Moonwalk v5 Loaded | "..Cfg.KEYBIND_1.."/"..Cfg.KEYBIND_2.." toggle | Hold 0.8s = Lock")
+showToast("🌙 Violence District loaded","success")
 
 end)
-if not ok then warn("🌙 Moonwalk error: "..tostring(err)) end
+if not ok then
+    warn("🌙 Moonwalk error: "..tostring(err))
+end
