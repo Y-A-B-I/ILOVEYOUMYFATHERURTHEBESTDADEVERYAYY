@@ -2,7 +2,7 @@ local ok, err = pcall(function()
 
 -- ============================================
 -- 🌙 Violence District - Auto Moonwalk Script
--- v5.0 — Tabs + Minimap + Wall + Humanized
+-- v5.1 — + Smooth Toggle / Wall Distance / Vel Smoother configs
 -- ============================================
 
 local Players          = game:GetService("Players")
@@ -76,6 +76,8 @@ local DEFAULTS = {
     SWING_WIDTH      = 5.5,
     MAX_YAW          = 38,
     TURN_LERP        = 0.04,
+    -- Velocity Smoother
+    VEL_SMOOTH       = 0.20,
     -- Humanized
     HUMANIZE_SPEED   = false,
     SPEED_1          = 6,
@@ -87,6 +89,9 @@ local DEFAULTS = {
     FRONT_FACING     = false,
     ANTI_DETECT      = false,
     WALL_AUTO_OFF    = false,
+    WALL_DISTANCE    = 3.5,
+    -- Smooth Toggle
+    SMOOTH_SPEED     = 5,
     -- Keybinds
     KEYBIND_1        = "M",
     KEYBIND_2        = "Q",
@@ -141,47 +146,46 @@ end
 local Cfg      = loadConfig()
 local profiles = jsonLoad(PROFILES_FILE) or {}
 
-local function saveConfig()   jsonSave(SAVE_FILE, Cfg)      end
+local function saveConfig()   jsonSave(SAVE_FILE, Cfg)         end
 local function saveProfiles() jsonSave(PROFILES_FILE, profiles) end
 local function autoSave()     if Cfg.AUTO_SAVE then saveConfig() end end
 
 -- =====================
 -- STATE
 -- =====================
-local LOCK_HOLD_TIME     = 0.8
-local DRAG_THRESHOLD     = 12
+local LOCK_HOLD_TIME   = 0.8
+local DRAG_THRESHOLD   = 12
 
-local moonwalkActive     = false
-local stepSide           = 1
-local stepTimer          = 0
-local elapsedTime        = 0
-local isLocked           = false
-local holdTimer          = 0
-local isHolding          = false
-local activeInput        = nil
-local savedWalkSpeed     = 16
-local currentFwd         = Vector3.new(0,0,-1)
-local tapConsumed        = false
-local cfgOpen            = false
-local listeningKeybind   = nil
-local progressBar        = nil
+local moonwalkActive   = false
+local stepSide         = 1
+local stepTimer        = 0
+local elapsedTime      = 0
+local isLocked         = false
+local holdTimer        = 0
+local isHolding        = false
+local activeInput      = nil
+local savedWalkSpeed   = 16
+local currentFwd       = Vector3.new(0,0,-1)
+local tapConsumed      = false
+local cfgOpen          = false
+local listeningKeybind = nil
+local progressBar      = nil
 
--- Humanized speed state
-local humanSpeedCurrent  = 8
-local humanSpeedTarget   = 8
-local humanSpeedTimer    = 0
-local humanSpeedPhase    = 1
+-- Humanized speed
+local humanSpeedCurrent = 8
+local humanSpeedTarget  = 8
+local humanSpeedTimer   = 0
+local humanSpeedPhase   = 1
 
 -- Smooth toggle
-local smoothAlpha        = 0
-local SMOOTH_SPEED       = 5
+local smoothAlpha = 0
 
 -- Anti-detect
-local antiTimer          = 0
-local antiOffset         = {speed=0, swing=0, yaw=0}
+local antiTimer  = 0
+local antiOffset = {speed=0, swing=0, yaw=0}
 
--- Wall detection
-local wallCooldown       = 0
+-- Wall
+local wallCooldown = 0
 
 local function getHRP()
     local c=player.Character; return c and c:FindFirstChild("HumanoidRootPart")
@@ -190,7 +194,6 @@ local function getHum()
     local c=player.Character; return c and c:FindFirstChildOfClass("Humanoid")
 end
 
--- Raycast params (excludes character)
 local wallRayParams = RaycastParams.new()
 wallRayParams.FilterType = Enum.RaycastFilterType.Exclude
 
@@ -213,7 +216,7 @@ if typeof(syn)=="table" and syn.protect_gui then syn.protect_gui(gui) end
 gui.Parent = safeParent
 
 -- =====================
--- TOAST SYSTEM
+-- TOAST
 -- =====================
 local toastQueue   = {}
 local toastRunning = false
@@ -224,7 +227,7 @@ local function showToast(msg, toastType)
     toastRunning = true
     task.spawn(function()
         while #toastQueue > 0 do
-            local item = table.remove(toastQueue,1)
+            local item = table.remove(toastQueue, 1)
             local cmap = {
                 info    = {Color3.fromRGB(20,20,45),   Color3.fromRGB(100,160,255), Color3.fromRGB(50,80,180)  },
                 success = {Color3.fromRGB(10,35,15),   Color3.fromRGB(80,220,120),  Color3.fromRGB(30,120,50)  },
@@ -450,58 +453,50 @@ boxPlusS.Thickness=1; boxPlusS.Parent=boxPlus
 -- =====================
 -- MINIMAP RADAR
 -- =====================
-local MINIMAP_DIRS   = 16     -- jumlah arah raycast
-local MINIMAP_RADIUS = 80     -- radius raycast deteksi (studs)
-local MINIMAP_SIZE   = 90     -- ukuran frame minimap (px)
-local MINIMAP_INNER  = 36     -- radius lingkaran dalam (px)
+local MINIMAP_DIRS   = 16
+local MINIMAP_RADIUS = 80
+local MINIMAP_SIZE   = 90
+local mmCX           = MINIMAP_SIZE/2
+local mmCY           = MINIMAP_SIZE/2
+local mmDrawR        = (MINIMAP_SIZE/2) - 6
 
 local minimapFrame=Instance.new("Frame"); minimapFrame.Size=UDim2.new(0,MINIMAP_SIZE,0,MINIMAP_SIZE)
 minimapFrame.Position=UDim2.new(0,10,0,10); minimapFrame.BackgroundColor3=Color3.fromRGB(5,5,14)
 minimapFrame.BackgroundTransparency=0.2; minimapFrame.BorderSizePixel=0; minimapFrame.ZIndex=50
 minimapFrame.Visible=Cfg.SHOW_MINIMAP; minimapFrame.Parent=gui
 Instance.new("UICorner",minimapFrame).CornerRadius=UDim.new(1,0)
-local mmS=Instance.new("UIStroke"); mmS.Color=Color3.fromRGB(55,55,155); mmS.Thickness=1.5
-mmS.Parent=minimapFrame
+local mmS=Instance.new("UIStroke"); mmS.Color=Color3.fromRGB(55,55,155); mmS.Thickness=1.5; mmS.Parent=minimapFrame
 
--- Player dot (center)
 local playerDot=Instance.new("Frame"); playerDot.Size=UDim2.new(0,6,0,6)
 playerDot.AnchorPoint=Vector2.new(0.5,0.5); playerDot.Position=UDim2.new(0.5,0,0.5,0)
 playerDot.BackgroundColor3=Color3.fromRGB(70,225,255); playerDot.BorderSizePixel=0
 playerDot.ZIndex=53; playerDot.Parent=minimapFrame
 Instance.new("UICorner",playerDot).CornerRadius=UDim.new(1,0)
 
--- Direction arrow (shows which way moonwalk is moving)
 local dirArrow=Instance.new("Frame"); dirArrow.Size=UDim2.new(0,3,0,12)
 dirArrow.AnchorPoint=Vector2.new(0.5,1); dirArrow.Position=UDim2.new(0.5,0,0.5,0)
 dirArrow.BackgroundColor3=Color3.fromRGB(120,255,150); dirArrow.BorderSizePixel=0
 dirArrow.ZIndex=52; dirArrow.Parent=minimapFrame
 Instance.new("UICorner",dirArrow).CornerRadius=UDim.new(0,2)
 
--- Wall blips (one per raycast direction)
-local wallBlips = {}
-local mmCX = MINIMAP_SIZE/2
-local mmCY = MINIMAP_SIZE/2
-local mmDrawR = (MINIMAP_SIZE/2) - 6  -- max draw radius
-
-for i=1, MINIMAP_DIRS do
+local wallBlips={}
+for i=1,MINIMAP_DIRS do
     local blip=Instance.new("Frame"); blip.Size=UDim2.new(0,4,0,4)
     blip.AnchorPoint=Vector2.new(0.5,0.5); blip.BackgroundColor3=Color3.fromRGB(255,80,80)
     blip.BorderSizePixel=0; blip.ZIndex=51; blip.Visible=false; blip.Parent=minimapFrame
     Instance.new("UICorner",blip).CornerRadius=UDim.new(1,0)
-    wallBlips[i] = blip
+    wallBlips[i]=blip
 end
 
--- Compass labels
-for i, data in ipairs({{"N",0,-1},{"E",1,0},{"S",0,1},{"W",-1,0}}) do
+for _,data in ipairs({{"N",0,-1},{"E",1,0},{"S",0,1},{"W",-1,0}}) do
     local cl=Instance.new("TextLabel"); cl.Size=UDim2.new(0,14,0,14)
     cl.AnchorPoint=Vector2.new(0.5,0.5)
-    cl.Position=UDim2.new(0.5, data[2]*(mmDrawR-4), 0.5, data[3]*(mmDrawR-4))
+    cl.Position=UDim2.new(0.5,data[2]*(mmDrawR-4),0.5,data[3]*(mmDrawR-4))
     cl.BackgroundTransparency=1; cl.Text=data[1]
     cl.TextColor3=Color3.fromRGB(60,70,120); cl.TextSize=7; cl.Font=Enum.Font.GothamBold
     cl.ZIndex=52; cl.Parent=minimapFrame
 end
 
--- Minimap label
 local mmLabel=Instance.new("TextLabel"); mmLabel.Size=UDim2.new(0,MINIMAP_SIZE,0,14)
 mmLabel.Position=UDim2.new(0,0,1,2); mmLabel.BackgroundTransparency=1
 mmLabel.Text="RADAR"; mmLabel.TextColor3=Color3.fromRGB(55,65,120); mmLabel.TextSize=8
@@ -517,7 +512,6 @@ Instance.new("UICorner",cfgPanel).CornerRadius=UDim.new(0,10)
 local cfgStroke=Instance.new("UIStroke"); cfgStroke.Color=Color3.fromRGB(60,80,180)
 cfgStroke.Thickness=1.5; cfgStroke.Parent=cfgPanel
 
--- Title bar
 local cfgTBar=Instance.new("Frame"); cfgTBar.Size=UDim2.new(1,0,0,28)
 cfgTBar.BackgroundColor3=Color3.fromRGB(14,14,32); cfgTBar.BorderSizePixel=0
 cfgTBar.ZIndex=21; cfgTBar.Parent=cfgPanel
@@ -535,7 +529,6 @@ cfgClose.BorderSizePixel=0; cfgClose.Text="×"; cfgClose.TextColor3=Color3.fromR
 cfgClose.TextSize=14; cfgClose.Font=Enum.Font.GothamBold; cfgClose.ZIndex=22; cfgClose.Parent=cfgTBar
 Instance.new("UICorner",cfgClose).CornerRadius=UDim.new(0,4)
 
--- Save / Reset row
 local btnRow=Instance.new("Frame"); btnRow.Size=UDim2.new(1,-10,0,24)
 btnRow.Position=UDim2.new(0,5,0,30); btnRow.BackgroundTransparency=1; btnRow.ZIndex=21; btnRow.Parent=cfgPanel
 
@@ -563,30 +556,27 @@ cfgSaveLbl.ZIndex=22; cfgSaveLbl.Parent=cfgPanel
 -- TAB BAR
 -- =====================
 local TAB_DEFS = {
-    {id="move",  label="Move"},
+    {id="move",  label="Move" },
     {id="human", label="Human"},
-    {id="mode",  label="Mode"},
-    {id="keys",  label="Keys"},
-    {id="gui",   label="GUI"},
-    {id="save",  label="Save"},
+    {id="mode",  label="Mode" },
+    {id="keys",  label="Keys" },
+    {id="gui",   label="GUI"  },
+    {id="save",  label="Save" },
 }
 
 local tabBar=Instance.new("Frame"); tabBar.Size=UDim2.new(1,-10,0,22)
 tabBar.Position=UDim2.new(0,5,0,70); tabBar.BackgroundTransparency=1
 tabBar.ZIndex=22; tabBar.Parent=cfgPanel
-
-local tabBarLayout=Instance.new("UIListLayout")
-tabBarLayout.FillDirection=Enum.FillDirection.Horizontal
-tabBarLayout.Padding=UDim.new(0,3); tabBarLayout.SortOrder=Enum.SortOrder.LayoutOrder
-tabBarLayout.Parent=tabBar
+local tabBarLL=Instance.new("UIListLayout")
+tabBarLL.FillDirection=Enum.FillDirection.Horizontal; tabBarLL.Padding=UDim.new(0,3)
+tabBarLL.SortOrder=Enum.SortOrder.LayoutOrder; tabBarLL.Parent=tabBar
 
 local tabPages  = {}
 local tabBtns   = {}
 local activeTab = "move"
+local tabW      = math.floor((240-(#TAB_DEFS-1)*3)/#TAB_DEFS)
 
-local tabW = math.floor((240 - (#TAB_DEFS-1)*3) / #TAB_DEFS)
-
-for i, def in ipairs(TAB_DEFS) do
+for i,def in ipairs(TAB_DEFS) do
     local tb=Instance.new("TextButton"); tb.Size=UDim2.new(0,tabW,1,0)
     tb.BackgroundColor3=Color3.fromRGB(13,13,28); tb.BorderSizePixel=0
     tb.Text=def.label; tb.TextColor3=Color3.fromRGB(100,110,160); tb.TextSize=9
@@ -605,9 +595,8 @@ for i, def in ipairs(TAB_DEFS) do
 
     local pl=Instance.new("UIListLayout"); pl.SortOrder=Enum.SortOrder.LayoutOrder
     pl.Padding=UDim.new(0,5); pl.Parent=page
-    local pp=Instance.new("UIPadding"); pp.PaddingTop=UDim.new(0,4)
-    pp.PaddingBottom=UDim.new(0,8); pp.PaddingLeft=UDim.new(0,4)
-    pp.PaddingRight=UDim.new(0,4); pp.Parent=page
+    local pp=Instance.new("UIPadding"); pp.PaddingTop=UDim.new(0,4); pp.PaddingBottom=UDim.new(0,8)
+    pp.PaddingLeft=UDim.new(0,4); pp.PaddingRight=UDim.new(0,4); pp.Parent=page
 
     tb.MouseButton1Click:Connect(function()
         activeTab=def.id
@@ -630,26 +619,22 @@ for i, def in ipairs(TAB_DEFS) do
     end)
 end
 
--- Init tab highlight
+-- Init first tab highlight
 do
-    local t=getTheme()
-    local tb=tabBtns["move"]
+    local t=getTheme(); local tb=tabBtns["move"]
     tb.BackgroundColor3=Color3.fromRGB(20,20,48); tb.TextColor3=t.accent
-    for _,c in ipairs(tb:GetChildren()) do
-        if c:IsA("UIStroke") then c.Color=t.stroke end
-    end
+    for _,c in ipairs(tb:GetChildren()) do if c:IsA("UIStroke") then c.Color=t.stroke end end
 end
 
 -- =====================
 -- WIDGET BUILDERS
 -- =====================
-local sliderUpdaters  = {}
+local sliderUpdaters   = {}
 local toggleRefreshers = {}
-local keybindBtns     = {}
+local keybindBtns      = {}
 
--- Slider
 local function makeSlider(parent, label, key, minV, maxV, dec, order)
-    local fmt = dec>0 and ("%."..dec.."f") or "%d"
+    local fmt=dec>0 and ("%."..dec.."f") or "%d"
     local row=Instance.new("Frame"); row.Size=UDim2.new(1,0,0,54)
     row.BackgroundColor3=Color3.fromRGB(13,13,28); row.BorderSizePixel=0
     row.LayoutOrder=order; row.ZIndex=22; row.Parent=parent
@@ -668,8 +653,7 @@ local function makeSlider(parent, label, key, minV, maxV, dec, order)
     ib.TextXAlignment=Enum.TextXAlignment.Center; ib.ClearTextOnFocus=false
     ib.ZIndex=24; ib.Parent=row
     Instance.new("UICorner",ib).CornerRadius=UDim.new(0,4)
-    local ibs=Instance.new("UIStroke"); ibs.Color=Color3.fromRGB(50,70,160)
-    ibs.Thickness=1; ibs.Parent=ib
+    local ibs=Instance.new("UIStroke"); ibs.Color=Color3.fromRGB(50,70,160); ibs.Thickness=1; ibs.Parent=ib
 
     local track=Instance.new("Frame"); track.Size=UDim2.new(1,-16,0,6)
     track.Position=UDim2.new(0,8,0,36); track.BackgroundColor3=Color3.fromRGB(25,25,55)
@@ -728,7 +712,6 @@ local function makeSlider(parent, label, key, minV, maxV, dec, order)
     end)
 end
 
--- Toggle pill
 local function makeToggleRow(parent, label, key, order, onToggle)
     local row=Instance.new("Frame"); row.Size=UDim2.new(1,0,0,34)
     row.BackgroundColor3=Color3.fromRGB(13,13,28); row.BorderSizePixel=0
@@ -768,16 +751,13 @@ local function makeToggleRow(parent, label, key, order, onToggle)
     end
 
     refresh(Cfg[key]); toggleRefreshers[key]=refresh
-
     pb.MouseButton1Click:Connect(function()
         Cfg[key]=not Cfg[key]; refresh(Cfg[key]); autoSave()
         if onToggle then onToggle(Cfg[key]) end
     end)
-
     return refresh
 end
 
--- Keybind row
 local function makeKeybindRow(parent, label, idx, order)
     local cfgKey="KEYBIND_"..idx
     local row=Instance.new("Frame"); row.Size=UDim2.new(1,0,0,34)
@@ -810,7 +790,6 @@ local function makeKeybindRow(parent, label, idx, order)
     end)
 end
 
--- Section header
 local function makeSectionHdr(parent, text, order)
     local h=Instance.new("Frame"); h.Size=UDim2.new(1,0,0,18)
     h.BackgroundTransparency=1; h.LayoutOrder=order; h.ZIndex=22; h.Parent=parent
@@ -828,65 +807,69 @@ end
 
 -- MOVE tab
 makeSectionHdr(tabPages.move,"MOVEMENT",1)
-makeSlider(tabPages.move,"Walk Speed",   "MOONWALK_SPEED",  2,   30,  1, 2)
-makeSlider(tabPages.move,"Swing Width",  "SWING_WIDTH",     0,   15,  2, 3)
-makeSlider(tabPages.move,"Max Yaw",      "MAX_YAW",         0,   60,  1, 4)
-makeSlider(tabPages.move,"Lerp Factor",  "LERP_FACTOR",     0.01,0.5, 2, 5)
-makeSlider(tabPages.move,"Step Interval","STEP_INTERVAL",   0.04,0.4, 2, 6)
-makeSlider(tabPages.move,"Turn Speed",   "TURN_LERP",       0.01,0.2, 2, 7)
+makeSlider(tabPages.move,"Walk Speed",    "MOONWALK_SPEED",  2,    30,   1, 2)
+makeSlider(tabPages.move,"Swing Width",   "SWING_WIDTH",     0,    15,   2, 3)
+makeSlider(tabPages.move,"Max Yaw",       "MAX_YAW",         0,    60,   1, 4)
+makeSlider(tabPages.move,"Lerp Factor",   "LERP_FACTOR",     0.01, 0.5,  2, 5)
+makeSlider(tabPages.move,"Step Interval", "STEP_INTERVAL",   0.04, 0.4,  2, 6)
+makeSlider(tabPages.move,"Turn Speed",    "TURN_LERP",       0.01, 0.2,  2, 7)
+makeSectionHdr(tabPages.move,"VELOCITY",8)
+makeSlider(tabPages.move,"Vel Smoother",  "VEL_SMOOTH",      0.01, 1.0,  2, 9)
 
 -- HUMAN tab
 makeSectionHdr(tabPages.human,"HUMANIZED SPEED",1)
-makeToggleRow(tabPages.human,"Humanize Speed","HUMANIZE_SPEED",2)
-makeSlider(tabPages.human,"Speed Min","SPEED_1",2,30,1,3)
-makeSlider(tabPages.human,"Speed Mid","SPEED_2",2,30,1,4)
-makeSlider(tabPages.human,"Speed Max","SPEED_3",2,30,1,5)
+makeToggleRow(tabPages.human,"Humanize Speed",   "HUMANIZE_SPEED",   2)
+makeSlider(tabPages.human,"Speed Min",           "SPEED_1",          2, 30, 1, 3)
+makeSlider(tabPages.human,"Speed Mid",           "SPEED_2",          2, 30, 1, 4)
+makeSlider(tabPages.human,"Speed Max",           "SPEED_3",          2, 30, 1, 5)
 makeSectionHdr(tabPages.human,"HUMANIZED TURNING",6)
-makeToggleRow(tabPages.human,"Humanize Turning","HUMANIZE_TURNING",7)
-makeSlider(tabPages.human,"Turn Noise","TURN_NOISE",0.001,0.15,3,8)
+makeToggleRow(tabPages.human,"Humanize Turning", "HUMANIZE_TURNING", 7)
+makeSlider(tabPages.human,"Turn Noise",          "TURN_NOISE",       0.001, 0.15, 3, 8)
 
 -- MODE tab
 makeSectionHdr(tabPages.mode,"DIRECTION",1)
-makeToggleRow(tabPages.mode,"Front Facing","FRONT_FACING",2)
-makeSectionHdr(tabPages.mode,"DETECTION",3)
-makeToggleRow(tabPages.mode,"Anti-Detect","ANTI_DETECT",4)
-makeToggleRow(tabPages.mode,"Wall Auto-Off","WALL_AUTO_OFF",5,function(val)
+makeToggleRow(tabPages.mode,"Front Facing",  "FRONT_FACING",  2)
+makeSectionHdr(tabPages.mode,"SMOOTH TOGGLE",3)
+makeSlider(tabPages.mode,"Toggle Fade Speed","SMOOTH_SPEED",  1,   20,  1, 4)
+makeSectionHdr(tabPages.mode,"DETECTION",5)
+makeToggleRow(tabPages.mode,"Anti-Detect",   "ANTI_DETECT",   6)
+makeToggleRow(tabPages.mode,"Wall Auto-Off", "WALL_AUTO_OFF", 7, function(val)
     showToast("Wall Auto-Off: "..(val and "ON" or "OFF"), val and "success" or "info")
 end)
+makeSlider(tabPages.mode,"Wall Distance",    "WALL_DISTANCE", 1,   10,  1, 8)
 
 -- KEYS tab
 makeSectionHdr(tabPages.keys,"KEYBINDS",1)
 makeKeybindRow(tabPages.keys,"Toggle Key 1","1",2)
 makeKeybindRow(tabPages.keys,"Toggle Key 2","2",3)
 
--- GUI tab — toggles + theme swatches
+-- GUI tab
 makeSectionHdr(tabPages.gui,"LAYOUT",1)
 makeToggleRow(tabPages.gui,"Small Box Mode","GUI_MODE_BOX",2,function(val)
-    Cfg.GUI_MODE = val and "box" or "rectangle"
+    Cfg.GUI_MODE=val and "box" or "rectangle"
     rectFrame.Visible=(Cfg.GUI_MODE=="rectangle"); boxFrame.Visible=(Cfg.GUI_MODE=="box"); autoSave()
 end)
 makeToggleRow(tabPages.gui,"Show Minimap","SHOW_MINIMAP",3,function(val)
     minimapFrame.Visible=val
-    showToast("Minimap: "..(val and "ON" or "OFF"), "info")
+    showToast("Minimap: "..(val and "ON" or "OFF"),"info")
 end)
 
--- Theme picker
+-- Theme picker in GUI tab
 makeSectionHdr(tabPages.gui,"THEME",4)
-local themePickerRow=Instance.new("Frame"); themePickerRow.Size=UDim2.new(1,0,0,40)
-themePickerRow.BackgroundColor3=Color3.fromRGB(13,13,28); themePickerRow.BorderSizePixel=0
-themePickerRow.LayoutOrder=5; themePickerRow.ZIndex=22; themePickerRow.Parent=tabPages.gui
-Instance.new("UICorner",themePickerRow).CornerRadius=UDim.new(0,6)
+local themeRow=Instance.new("Frame"); themeRow.Size=UDim2.new(1,0,0,40)
+themeRow.BackgroundColor3=Color3.fromRGB(13,13,28); themeRow.BorderSizePixel=0
+themeRow.LayoutOrder=5; themeRow.ZIndex=22; themeRow.Parent=tabPages.gui
+Instance.new("UICorner",themeRow).CornerRadius=UDim.new(0,6)
 
 local swatchHolder=Instance.new("Frame"); swatchHolder.Size=UDim2.new(1,-16,0,24)
 swatchHolder.Position=UDim2.new(0,8,0.5,-12); swatchHolder.BackgroundTransparency=1
-swatchHolder.ZIndex=23; swatchHolder.Parent=themePickerRow
-local swatchLL=Instance.new("UIListLayout"); swatchLL.FillDirection=Enum.FillDirection.Horizontal
-swatchLL.Padding=UDim.new(0,6); swatchLL.VerticalAlignment=Enum.VerticalAlignment.Center
-swatchLL.SortOrder=Enum.SortOrder.LayoutOrder; swatchLL.Parent=swatchHolder
+swatchHolder.ZIndex=23; swatchHolder.Parent=themeRow
+local swLL=Instance.new("UIListLayout"); swLL.FillDirection=Enum.FillDirection.Horizontal
+swLL.Padding=UDim.new(0,6); swLL.VerticalAlignment=Enum.VerticalAlignment.Center
+swLL.SortOrder=Enum.SortOrder.LayoutOrder; swLL.Parent=swatchHolder
 
 local swatchBorders={}
-local themeNames={"blue","red","green","purple","gold","white"}
-for i,tname in ipairs(themeNames) do
+for i,tname in ipairs({"blue","red","green","purple","gold","white"}) do
     local t=THEMES[tname]
     local sw=Instance.new("TextButton"); sw.Size=UDim2.new(0,24,0,24)
     sw.BackgroundColor3=t.accent; sw.BorderSizePixel=0; sw.Text=""
@@ -897,13 +880,10 @@ for i,tname in ipairs(themeNames) do
 
     sw.MouseButton1Click:Connect(function()
         Cfg.THEME=tname; autoSave()
-        -- Update all borders
         for tn,b in pairs(swatchBorders) do
             TweenService:Create(b,TweenInfo.new(0.15),{Thickness=(tn==tname) and 2.5 or 0}):Play()
         end
-        -- Apply theme to all UI
-        local th=THEMES[tname]
-        local ti=TweenInfo.new(0.3)
+        local th=THEMES[tname]; local ti=TweenInfo.new(0.3)
         for _,s in ipairs({rectStroke,boxStroke,cfgStroke,rectPlusS,boxPlusS,mmS}) do
             TweenService:Create(s,ti,{Color=th.stroke}):Play()
         end
@@ -911,7 +891,6 @@ for i,tname in ipairs(themeNames) do
             TweenService:Create(g,ti,{ImageColor3=th.glow}):Play()
         end
         cfgTitle.TextColor3=th.accent
-        -- Refresh active tab highlight
         local atb=tabBtns[activeTab]
         if atb then atb.TextColor3=th.accent
             for _,c in ipairs(atb:GetChildren()) do
@@ -932,12 +911,10 @@ end
 makeSectionHdr(tabPages.save,"SAVING",1)
 makeToggleRow(tabPages.save,"Auto Save Config","AUTO_SAVE",2)
 
--- Config loader button
 local loaderWrapper=Instance.new("Frame"); loaderWrapper.Size=UDim2.new(1,0,0,34)
 loaderWrapper.BackgroundColor3=Color3.fromRGB(13,13,28); loaderWrapper.BorderSizePixel=0
 loaderWrapper.LayoutOrder=3; loaderWrapper.ZIndex=22; loaderWrapper.Parent=tabPages.save
 Instance.new("UICorner",loaderWrapper).CornerRadius=UDim.new(0,6)
-
 local loaderOpenBtn=Instance.new("TextButton"); loaderOpenBtn.Size=UDim2.new(1,-16,0,22)
 loaderOpenBtn.Position=UDim2.new(0,8,0.5,-11); loaderOpenBtn.BackgroundColor3=Color3.fromRGB(15,50,100)
 loaderOpenBtn.BorderSizePixel=0; loaderOpenBtn.Text="Open Config Loader"
@@ -970,8 +947,8 @@ ldrClose.TextSize=14; ldrClose.Font=Enum.Font.GothamBold; ldrClose.ZIndex=32; ld
 Instance.new("UICorner",ldrClose).CornerRadius=UDim.new(0,4)
 ldrClose.MouseButton1Click:Connect(function() loaderPanel.Visible=false end)
 
-local saveAsRow=Instance.new("Frame"); saveAsRow.Size=UDim2.new(1,-10,0,28); saveAsRow.Position=UDim2.new(0,5,0,32)
-saveAsRow.BackgroundTransparency=1; saveAsRow.ZIndex=31; saveAsRow.Parent=loaderPanel
+local saveAsRow=Instance.new("Frame"); saveAsRow.Size=UDim2.new(1,-10,0,28)
+saveAsRow.Position=UDim2.new(0,5,0,32); saveAsRow.BackgroundTransparency=1; saveAsRow.ZIndex=31; saveAsRow.Parent=loaderPanel
 local saBox=Instance.new("TextBox"); saBox.Size=UDim2.new(1,-62,1,0)
 saBox.BackgroundColor3=Color3.fromRGB(20,20,45); saBox.BorderSizePixel=0
 saBox.Text=""; saBox.PlaceholderText="Config name..."; saBox.PlaceholderColor3=Color3.fromRGB(60,80,100)
@@ -1001,11 +978,11 @@ pll.Padding=UDim.new(0,4); pll.Parent=profilesList
 local plp=Instance.new("UIPadding"); plp.PaddingTop=UDim.new(0,2); plp.PaddingBottom=UDim.new(0,4)
 plp.PaddingLeft=UDim.new(0,2); plp.PaddingRight=UDim.new(0,2); plp.Parent=profilesList
 
-local ldrFlashThread=nil
+local ldrFlashThr=nil
 local function flashLdr(msg,col)
     ldrStatus.Text=msg; ldrStatus.TextColor3=col
-    if ldrFlashThread then task.cancel(ldrFlashThread) end
-    ldrFlashThread=task.delay(2.5,function() ldrStatus.Text="" end)
+    if ldrFlashThr then task.cancel(ldrFlashThr) end
+    ldrFlashThr=task.delay(2.5,function() ldrStatus.Text="" end)
 end
 
 local function buildProfiles()
@@ -1014,8 +991,9 @@ local function buildProfiles()
     end
     local names={}; for n in pairs(profiles) do table.insert(names,n) end; table.sort(names)
     if #names==0 then
-        local el=Instance.new("TextLabel"); el.Size=UDim2.new(1,0,0,28); el.BackgroundTransparency=1
-        el.Text="No saved configs."; el.TextColor3=Color3.fromRGB(70,80,120); el.TextSize=10
+        local el=Instance.new("TextLabel"); el.Size=UDim2.new(1,0,0,28)
+        el.BackgroundTransparency=1; el.Text="No saved configs."
+        el.TextColor3=Color3.fromRGB(70,80,120); el.TextSize=10
         el.Font=Enum.Font.Gotham; el.ZIndex=32; el.Parent=profilesList; return
     end
     for i,name in ipairs(names) do
@@ -1053,7 +1031,7 @@ local function buildProfiles()
         db.MouseButton1Click:Connect(function()
             profiles[cap]=nil; saveProfiles(); buildProfiles()
             flashLdr('Deleted "'..cap..'"',Color3.fromRGB(255,160,80))
-            showToast('Config "'..cap..'" deleted',"warning")
+            showToast('Deleted "'..cap..'"',"warning")
         end)
     end
 end
@@ -1066,14 +1044,13 @@ saBtn.MouseButton1Click:Connect(function()
     saBox.Text=""; flashLdr('Saved as "'..n..'"',Color3.fromRGB(100,255,100))
     showToast('Saved config "'..n..'"',"success")
 end)
-
 loaderOpenBtn.MouseButton1Click:Connect(function()
     loaderPanel.Visible=not loaderPanel.Visible
     if loaderPanel.Visible then buildProfiles() end
 end)
 
 -- =====================
--- SAVE / RESET BUTTONS
+-- SAVE / RESET
 -- =====================
 local saveFlashThr=nil
 local function flashSave(msg,col)
@@ -1086,7 +1063,6 @@ saveBtn.MouseButton1Click:Connect(function()
     saveConfig(); flashSave("Config saved!",Color3.fromRGB(100,255,100))
     showToast("Config saved!","success")
 end)
-
 resetBtn.MouseButton1Click:Connect(function()
     for k,v in pairs(DEFAULTS) do Cfg[k]=v
         if sliderUpdaters[k] then sliderUpdaters[k](v) end
@@ -1108,16 +1084,16 @@ end
 
 local function setCfgOpen(val)
     cfgOpen=val; cfgPanel.Visible=val
-    local pB = Cfg.GUI_MODE=="box" and boxPlus or rectPlus
-    local pS = Cfg.GUI_MODE=="box" and boxPlusS or rectPlusS
-    local t  = getTheme()
-    pB.Text = val and "−" or "+"
-    pB.TextColor3 = val and Color3.fromRGB(255,100,100) or t.accent
-    pS.Color = val and Color3.fromRGB(180,50,50) or t.stroke
-    pB.BackgroundColor3 = val and Color3.fromRGB(40,10,10) or Color3.fromRGB(18,18,40)
+    local pB=Cfg.GUI_MODE=="box" and boxPlus or rectPlus
+    local pS=Cfg.GUI_MODE=="box" and boxPlusS or rectPlusS
+    local t=getTheme()
+    pB.Text=val and "−" or "+"
+    pB.TextColor3=val and Color3.fromRGB(255,100,100) or t.accent
+    pS.Color=val and Color3.fromRGB(180,50,50) or t.stroke
+    pB.BackgroundColor3=val and Color3.fromRGB(40,10,10) or Color3.fromRGB(18,18,40)
     local af=getActiveFrame()
-    cfgPanel.Position=UDim2.new(af.Position.X.Scale, af.Position.X.Offset-67,
-        af.Position.Y.Scale, af.Position.Y.Offset-410)
+    cfgPanel.Position=UDim2.new(af.Position.X.Scale,af.Position.X.Offset-67,
+        af.Position.Y.Scale,af.Position.Y.Offset-410)
 end
 
 rectPlus.MouseButton1Click:Connect(function() setCfgOpen(not cfgOpen) end)
@@ -1144,8 +1120,8 @@ end
 -- =====================
 local function refreshUI()
     local on=moonwalkActive; local t=getTheme()
-    local ac = on and t.accent or Color3.fromRGB(90,90,90)
-    local sc = isLocked and Color3.fromRGB(255,200,40) or (on and t.accent or t.stroke)
+    local ac=on and t.accent or Color3.fromRGB(90,90,90)
+    local sc=isLocked and Color3.fromRGB(255,200,40) or (on and t.accent or t.stroke)
     rectStroke.Color=sc; rectGlow.ImageColor3=on and t.glow or Color3.fromRGB(45,45,190)
     rectStatus.Text=on and "ON" or "OFF"; rectStatus.TextColor3=ac
     rectMoonImg.ImageColor3=on and t.accent or Color3.fromRGB(100,100,160)
@@ -1155,8 +1131,7 @@ local function refreshUI()
     boxStatus.Text=on and "ON" or "OFF"; boxStatus.TextColor3=ac
     boxMoonImg.ImageColor3=on and t.accent or Color3.fromRGB(100,100,160)
     boxMoonFb.TextColor3=on and t.accent or Color3.fromRGB(100,100,160)
-    -- Direction arrow color
-    dirArrow.BackgroundColor3 = on and t.accent or Color3.fromRGB(60,70,100)
+    dirArrow.BackgroundColor3=on and t.accent or Color3.fromRGB(60,70,100)
 end
 
 -- =====================
@@ -1185,8 +1160,7 @@ UserInputService.InputChanged:Connect(function(inp)
     if inp~=activeInput then return end
     if not isHolding then return end
     local d=inp.Position-dragStart
-    local dist=math.sqrt(d.X^2+d.Y^2)
-    if dist>DRAG_THRESHOLD then
+    if math.sqrt(d.X^2+d.Y^2)>DRAG_THRESHOLD then
         if not dragging then
             dragging=true; holdTimer=0
             if progressBar then progressBar.Size=UDim2.new(0,0,1,0) end
@@ -1228,7 +1202,6 @@ UserInputService.InputBegan:Connect(function(inp,gp)
                 TweenService:Create(kb.stroke,TweenInfo.new(0.15),{Color=Color3.fromRGB(50,70,160)}):Play()
             end
             listeningKeybind=nil; autoSave()
-            showToast("Keybind "..listeningKeybind.." → "..kn,"info")
         end
         return
     end
@@ -1255,14 +1228,14 @@ player.CharacterAdded:Connect(onCharacterAdded)
 if player.Character then task.spawn(function() onCharacterAdded(player.Character) end) end
 
 -- =====================
--- HEARTBEAT — hold timer + smooth alpha
+-- HEARTBEAT
 -- =====================
 RunService.Heartbeat:Connect(function(dt)
-    -- Smooth toggle alpha
-    local alphaTarget = moonwalkActive and 1 or 0
-    smoothAlpha = smoothAlpha + (alphaTarget - smoothAlpha) * math.min(dt*SMOOTH_SPEED, 1)
+    -- Smooth toggle — pakai Cfg.SMOOTH_SPEED
+    local alphaTarget=moonwalkActive and 1 or 0
+    smoothAlpha=smoothAlpha+(alphaTarget-smoothAlpha)*math.min(dt*Cfg.SMOOTH_SPEED,1)
 
-    -- Hold lock timer
+    -- Hold lock
     if isHolding and not dragging then
         holdTimer=holdTimer+dt
         if progressBar then
@@ -1279,70 +1252,45 @@ RunService.Heartbeat:Connect(function(dt)
 end)
 
 -- =====================
--- RENDER STEPPED — main loop + minimap
+-- RENDER STEPPED
 -- =====================
 RunService.RenderStepped:Connect(function(dt)
     local hrp=getHRP(); local hum=getHum()
 
-    -- Minimap update (independent of moonwalk state)
+    -- Minimap
     if Cfg.SHOW_MINIMAP and hrp then
-        local camY = camera.CFrame.LookVector
-        local camFwd = Vector3.new(camY.X,0,camY.Z)
-        if camFwd.Magnitude < 0.01 then camFwd = Vector3.new(0,0,-1) end
-        camFwd = camFwd.Unit
-        local camRight = Vector3.new(camFwd.Z,0,-camFwd.X)
+        local camY=camera.CFrame.LookVector
+        local camFwd=Vector3.new(camY.X,0,camY.Z)
+        if camFwd.Magnitude<0.01 then camFwd=Vector3.new(0,0,-1) end
+        camFwd=camFwd.Unit
+        local camRight=Vector3.new(camFwd.Z,0,-camFwd.X)
 
-        -- Direction arrow rotation based on moonwalk direction
         if moonwalkActive then
-            local moveFwd = Cfg.FRONT_FACING and currentFwd or -currentFwd
-            local screenX = moveFwd:Dot(camRight)
-            local screenZ = moveFwd:Dot(camFwd)
-            local angle = math.deg(math.atan2(screenX,-screenZ))
-            dirArrow.Rotation = angle
-            dirArrow.Visible = true
+            local moveFwd=Cfg.FRONT_FACING and currentFwd or -currentFwd
+            local sx=moveFwd:Dot(camRight); local sz=moveFwd:Dot(camFwd)
+            dirArrow.Rotation=math.deg(math.atan2(sx,-sz)); dirArrow.Visible=true
         else
-            dirArrow.Visible = false
+            dirArrow.Visible=false
         end
 
-        -- Raycast 16 directions for walls
-        for i=1, MINIMAP_DIRS do
-            local angle = (i-1) * (2*math.pi/MINIMAP_DIRS)
-            -- World direction for this ray
-            local wx = math.sin(angle)
-            local wz = math.cos(angle)
-            local worldDir = camRight*wx + camFwd*(-wz)
-            worldDir = Vector3.new(worldDir.X,0,worldDir.Z)
-            if worldDir.Magnitude < 0.01 then
-                wallBlips[i].Visible=false; continue
-            end
-            worldDir = worldDir.Unit
-
-            local rayResult = workspace:Raycast(
-                hrp.Position + Vector3.new(0,1,0),
-                worldDir * MINIMAP_RADIUS,
-                wallRayParams
-            )
-
-            local blip = wallBlips[i]
+        for i=1,MINIMAP_DIRS do
+            local angle=(i-1)*(2*math.pi/MINIMAP_DIRS)
+            local wx=math.sin(angle); local wz=math.cos(angle)
+            local worldDir=camRight*wx+camFwd*(-wz)
+            worldDir=Vector3.new(worldDir.X,0,worldDir.Z)
+            if worldDir.Magnitude<0.01 then wallBlips[i].Visible=false; continue end
+            worldDir=worldDir.Unit
+            local rayResult=workspace:Raycast(hrp.Position+Vector3.new(0,1,0),worldDir*MINIMAP_RADIUS,wallRayParams)
+            local blip=wallBlips[i]
             if rayResult then
-                local dist = rayResult.Distance
-                local t = math.clamp(dist/MINIMAP_RADIUS, 0, 1)
-                -- Map to minimap screen space
-                local sx = math.sin(angle)
-                local sz = -math.cos(angle)
-                local bx = mmCX + sx * (t * mmDrawR)
-                local bz = mmCY + sz * (t * mmDrawR)
-                blip.Position = UDim2.new(0,bx,0,bz)
-                -- Color: red=close, yellow=mid, green=far
-                if dist < MINIMAP_RADIUS*0.25 then
-                    blip.BackgroundColor3=Color3.fromRGB(255,60,60)
-                    blip.Size=UDim2.new(0,5,0,5)
-                elseif dist < MINIMAP_RADIUS*0.6 then
-                    blip.BackgroundColor3=Color3.fromRGB(255,200,60)
-                    blip.Size=UDim2.new(0,4,0,4)
+                local dist=rayResult.Distance; local t=math.clamp(dist/MINIMAP_RADIUS,0,1)
+                blip.Position=UDim2.new(0,mmCX+math.sin(angle)*(t*mmDrawR),0,mmCY+(-math.cos(angle))*(t*mmDrawR))
+                if dist<MINIMAP_RADIUS*0.25 then
+                    blip.BackgroundColor3=Color3.fromRGB(255,60,60); blip.Size=UDim2.new(0,5,0,5)
+                elseif dist<MINIMAP_RADIUS*0.6 then
+                    blip.BackgroundColor3=Color3.fromRGB(255,200,60); blip.Size=UDim2.new(0,4,0,4)
                 else
-                    blip.BackgroundColor3=Color3.fromRGB(60,200,100)
-                    blip.Size=UDim2.new(0,3,0,3)
+                    blip.BackgroundColor3=Color3.fromRGB(60,200,100); blip.Size=UDim2.new(0,3,0,3)
                 end
                 blip.Visible=true
             else
@@ -1354,58 +1302,48 @@ RunService.RenderStepped:Connect(function(dt)
         dirArrow.Visible=false
     end
 
-    -- Main moonwalk (skip if nearly off)
-    if smoothAlpha < 0.01 then return end
+    if smoothAlpha<0.01 then return end
     if not hrp or not hum or hum.Health<=0 then return end
 
-    -- Force walkspeed
     if hum.WalkSpeed~=Cfg.MOONWALK_SPEED then hum.WalkSpeed=Cfg.MOONWALK_SPEED end
 
     stepTimer+=dt; elapsedTime+=dt
     if stepTimer>=Cfg.STEP_INTERVAL then stepTimer=0; stepSide=-stepSide end
 
-    -- Camera direction lerp
     local camLook=camera.CFrame.LookVector
     local targetFwd=Vector3.new(camLook.X,0,camLook.Z)
-    if targetFwd.Magnitude>0.01 then
-        currentFwd=currentFwd:Lerp(targetFwd.Unit, Cfg.TURN_LERP)
-    end
-    local fwd = currentFwd.Magnitude>0.01 and currentFwd.Unit or targetFwd.Unit
+    if targetFwd.Magnitude>0.01 then currentFwd=currentFwd:Lerp(targetFwd.Unit,Cfg.TURN_LERP) end
+    local fwd=currentFwd.Magnitude>0.01 and currentFwd.Unit or targetFwd.Unit
 
-    -- Humanized turning — add noise to fwd
+    -- Humanized turning
     if Cfg.HUMANIZE_TURNING then
         local noise=Vector3.new(
-            math.sin(elapsedTime*1.37+0.63)*Cfg.TURN_NOISE,
-            0,
+            math.sin(elapsedTime*1.37+0.63)*Cfg.TURN_NOISE,0,
             math.cos(elapsedTime*0.89+1.21)*Cfg.TURN_NOISE
         )
-        local noisyFwd=fwd+noise
-        if noisyFwd.Magnitude>0.01 then fwd=noisyFwd.Unit end
+        local nf=fwd+noise; if nf.Magnitude>0.01 then fwd=nf.Unit end
     end
 
-    -- Anti-detect offset
+    -- Anti-detect
     if Cfg.ANTI_DETECT then
         antiTimer+=dt
         if antiTimer>=math.random(20,45)*0.1 then
             antiTimer=0
-            antiOffset.speed = math.random(-8,8)*0.1
-            antiOffset.swing = math.random(-5,5)*0.1
-            antiOffset.yaw   = math.random(-4,4)*1.0
+            antiOffset.speed=math.random(-8,8)*0.1
+            antiOffset.swing=math.random(-5,5)*0.1
+            antiOffset.yaw=math.random(-4,4)*1.0
         end
     else
         antiOffset={speed=0,swing=0,yaw=0}
     end
 
-    -- Humanized speed — interpolate between 3 phases
+    -- Humanized speed
     local effectiveSpeed
     if Cfg.HUMANIZE_SPEED then
         humanSpeedTimer+=dt
-        local changeInterval = math.random(15,40)*0.1 -- 1.5s–4s
-        if humanSpeedTimer>=changeInterval then
-            humanSpeedTimer=0
-            humanSpeedPhase=(humanSpeedPhase%3)+1
-            local phases={Cfg.SPEED_1, Cfg.SPEED_2, Cfg.SPEED_3}
-            humanSpeedTarget=phases[humanSpeedPhase]
+        if humanSpeedTimer>=math.random(15,40)*0.1 then
+            humanSpeedTimer=0; humanSpeedPhase=(humanSpeedPhase%3)+1
+            humanSpeedTarget=({Cfg.SPEED_1,Cfg.SPEED_2,Cfg.SPEED_3})[humanSpeedPhase]
         end
         humanSpeedCurrent=humanSpeedCurrent+(humanSpeedTarget-humanSpeedCurrent)*math.min(dt*1.5,1)
         effectiveSpeed=humanSpeedCurrent+antiOffset.speed
@@ -1413,36 +1351,28 @@ RunService.RenderStepped:Connect(function(dt)
         effectiveSpeed=Cfg.MOONWALK_SPEED+antiOffset.speed
     end
 
-    local effectiveSwing = Cfg.SWING_WIDTH+antiOffset.swing
-    local effectiveYaw   = Cfg.MAX_YAW+antiOffset.yaw
+    local effectiveSwing=Cfg.SWING_WIDTH+antiOffset.swing
+    local effectiveYaw=Cfg.MAX_YAW+antiOffset.yaw
 
-    -- Wall detection
+    -- Wall auto-off — pakai Cfg.WALL_DISTANCE
     if Cfg.WALL_AUTO_OFF and moonwalkActive and wallCooldown<=0 then
-        local moveDir = Cfg.FRONT_FACING and fwd or -fwd
+        local moveDir=Cfg.FRONT_FACING and fwd or -fwd
         local rayResult=workspace:Raycast(
             hrp.Position+Vector3.new(0,1,0),
-            moveDir*3.5,
+            moveDir*Cfg.WALL_DISTANCE,   -- ← configurable
             wallRayParams
         )
         if rayResult then
             moonwalkActive=false; smoothAlpha=0; wallCooldown=1.5
             applyToCharacter(); refreshUI()
-            showToast("Wall hit — Moonwalk OFF","warning")
-            return
+            showToast("Wall hit — Moonwalk OFF","warning"); return
         end
     end
 
-    -- Velocity calculation
     local rightVec=Vector3.new(fwd.Z,0,-fwd.X)
     local sineVal=math.sin(elapsedTime/(Cfg.STEP_INTERVAL*2)*2*math.pi)
     local sideVel=rightVec*sineVal*effectiveSwing
-
-    local moveVel
-    if Cfg.FRONT_FACING then
-        moveVel=fwd*effectiveSpeed
-    else
-        moveVel=-fwd*effectiveSpeed
-    end
+    local moveVel=Cfg.FRONT_FACING and fwd*effectiveSpeed or -fwd*effectiveSpeed
 
     local targetVel=Vector3.new(
         moveVel.X+sideVel.X,
@@ -1450,28 +1380,24 @@ RunService.RenderStepped:Connect(function(dt)
         moveVel.Z+sideVel.Z
     )
 
-    -- Apply smooth alpha scale
+    -- Apply smooth alpha + Cfg.VEL_SMOOTH
     local scaledVel=Vector3.new(
         targetVel.X*smoothAlpha,
         hrp.AssemblyLinearVelocity.Y,
         targetVel.Z*smoothAlpha
     )
+    hrp.AssemblyLinearVelocity=hrp.AssemblyLinearVelocity:Lerp(scaledVel, Cfg.VEL_SMOOTH)  -- ← configurable
 
-    hrp.AssemblyLinearVelocity=hrp.AssemblyLinearVelocity:Lerp(scaledVel, Cfg.LERP_FACTOR)
-
-    -- HRP rotation
-    local faceFwd = Cfg.FRONT_FACING and -fwd or fwd
-    local faceCF  = CFrame.new(hrp.Position, hrp.Position+faceFwd)
-    hrp.CFrame = CFrame.new(hrp.Position)
-        * CFrame.fromMatrix(Vector3.new(), faceCF.RightVector, faceCF.UpVector)
-        * CFrame.Angles(0, math.rad(sineVal*effectiveYaw), 0)
+    local faceFwd=Cfg.FRONT_FACING and -fwd or fwd
+    local faceCF=CFrame.new(hrp.Position,hrp.Position+faceFwd)
+    hrp.CFrame=CFrame.new(hrp.Position)
+        *CFrame.fromMatrix(Vector3.new(),faceCF.RightVector,faceCF.UpVector)
+        *CFrame.Angles(0,math.rad(sineVal*effectiveYaw),0)
 end)
 
 refreshUI()
-print("🌙 Moonwalk v5 Loaded | "..Cfg.KEYBIND_1.."/"..Cfg.KEYBIND_2.." toggle | Hold 0.8s = Lock")
+print("🌙 Moonwalk v5.1 | "..Cfg.KEYBIND_1.."/"..Cfg.KEYBIND_2.." | Hold 0.8s = Lock")
 showToast("🌙 Violence District loaded","success")
 
 end)
-if not ok then
-    warn("🌙 Moonwalk error: "..tostring(err))
-end
+if not ok then warn("🌙 Moonwalk error: "..tostring(err)) end
