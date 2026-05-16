@@ -90,7 +90,7 @@ local DEFAULTS = {
     KILLER_NOTIFY    = false,
     KILLER_MODE      = "both",      -- "notify" | "highlight" | "both"
     KILLER_RANGE     = 50,
-    KILLER_TEAM      = "Murderer",
+    KILLER_TEAM      = "Killer",
     -- Keybinds
     KEYBIND_1        = "M",
     KEYBIND_2        = "Q",
