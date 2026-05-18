@@ -2,7 +2,7 @@ local ok, err = pcall(function()
 
 -- ============================================
 -- 🌙 Violence District - Auto Moonwalk Script
--- v5.2 — 360 Wall / Timer / Killer Notify / Toast++
+-- v5.3 — Carry Bug Fix + Killer Team + Fade Default
 -- ============================================
 
 local Players          = game:GetService("Players")
@@ -82,24 +82,20 @@ local DEFAULTS = {
     ANTI_DETECT      = false,
     WALL_AUTO_OFF    = false,
     WALL_DISTANCE    = 3.5,
-    SMOOTH_SPEED     = 5,
-    -- Timer Moonwalk
+    SMOOTH_SPEED     = 20,        -- ← default 20
     TIMER_ENABLED    = false,
     TIMER_DURATION   = 4,
-    -- Killer Proximity
     KILLER_NOTIFY    = false,
-    KILLER_MODE      = "both",      -- "notify" | "highlight" | "both"
+    KILLER_MODE      = "both",
     KILLER_RANGE     = 50,
-    KILLER_TEAM      = "Killer",
-    -- Keybinds
+    KILLER_TEAM      = "Killer",  -- ← Killer bukan Murderer
     KEYBIND_1        = "M",
     KEYBIND_2        = "Q",
-    -- GUI
     GUI_MODE         = "rectangle",
     GUI_MODE_BOX     = false,
     THEME            = "blue",
     SHOW_MINIMAP     = true,
-    TOAST_POSITION   = "default",   -- "default" | "top_left" | "bottom_left"
+    TOAST_POSITION   = "default",
     AUTO_SAVE        = true,
 }
 
@@ -171,14 +167,15 @@ local humanSpeedPhase  = 1
 local antiTimer        = 0
 local antiOffset       = {speed=0,swing=0,yaw=0}
 local wallCooldown     = 0
-
--- Timer moonwalk state
 local timerCountdown   = 0
 local timerActive      = false
-
--- Killer proximity state
-local killerHighlights = {}   -- [player] = SelectionBox
+local killerHighlights = {}
 local killerAlertCooldown = 0
+
+-- ── Carry detection state ──
+local wasCarried      = false
+local carryResetTimer = 0
+local carryVelThresh  = 35  -- studs/s horizontal threshold
 
 local function getHRP() local c=player.Character;return c and c:FindFirstChild("HumanoidRootPart") end
 local function getHum() local c=player.Character;return c and c:FindFirstChildOfClass("Humanoid") end
@@ -204,28 +201,23 @@ if typeof(syn)=="table" and syn.protect_gui then syn.protect_gui(gui) end
 gui.Parent=safeParent
 
 -- =====================
--- TOAST SYSTEM (enhanced)
+-- TOAST SYSTEM
 -- =====================
 local toastQueue   = {}
 local toastRunning = false
 
--- Get toast start/end position based on config
 local function getToastPositions()
-    local pos = Cfg and Cfg.TOAST_POSITION or "default"
-    if pos == "top_left" then
-        return UDim2.new(0,-235,0,10), UDim2.new(0,10,0,10),
-               UDim2.new(0,-235,0,10)  -- exit same direction
-    elseif pos == "bottom_left" then
-        return UDim2.new(0,-235,1,-44), UDim2.new(0,10,1,-44),
-               UDim2.new(0,-235,1,-44)
-    else -- default top center
-        return UDim2.new(0.5,-110,0,-44), UDim2.new(0.5,-110,0,10),
-               UDim2.new(0.5,-110,0,-44)
+    local pos=Cfg and Cfg.TOAST_POSITION or "default"
+    if pos=="top_left" then
+        return UDim2.new(0,-235,0,10),UDim2.new(0,10,0,10),UDim2.new(0,-235,0,10)
+    elseif pos=="bottom_left" then
+        return UDim2.new(0,-235,1,-44),UDim2.new(0,10,1,-44),UDim2.new(0,-235,1,-44)
+    else
+        return UDim2.new(0.5,-110,0,-44),UDim2.new(0.5,-110,0,10),UDim2.new(0.5,-110,0,-44)
     end
 end
 
--- pulseColor: Color3 for pulsing ring, nil = no pulse
-local function showToast(msg, toastType, pulseColor)
+local function showToast(msg,toastType,pulseColor)
     table.insert(toastQueue,{msg=msg,type=toastType or "info",pulse=pulseColor})
     if toastRunning then return end
     toastRunning=true
@@ -241,59 +233,40 @@ local function showToast(msg, toastType, pulseColor)
             local c=cmap[item.type] or cmap.info
             local startP,endP,exitP=getToastPositions()
 
-            -- Toast frame
             local toast=Instance.new("Frame")
-            toast.Size=UDim2.new(0,220,0,36)
-            toast.AnchorPoint=Vector2.new(0,0)
-            toast.Position=startP
-            toast.BackgroundColor3=c[1]
-            toast.BackgroundTransparency=0.06
-            toast.BorderSizePixel=0;toast.ZIndex=500;toast.Parent=gui
+            toast.Size=UDim2.new(0,220,0,36);toast.AnchorPoint=Vector2.new(0,0)
+            toast.Position=startP;toast.BackgroundColor3=c[1]
+            toast.BackgroundTransparency=0.06;toast.BorderSizePixel=0
+            toast.ZIndex=500;toast.Parent=gui
             Instance.new("UICorner",toast).CornerRadius=UDim.new(0,9)
             local ts=Instance.new("UIStroke");ts.Color=c[3];ts.Thickness=1;ts.Parent=toast
 
-            -- ── Pulse ring (if pulseColor provided) ──
             if item.pulse then
-                local ringHolder=Instance.new("Frame")
-                ringHolder.Size=UDim2.new(0,36,0,36)
-                ringHolder.Position=UDim2.new(0,0,0,0)
-                ringHolder.BackgroundTransparency=1
-                ringHolder.ZIndex=501;ringHolder.Parent=toast
+                local rh=Instance.new("Frame");rh.Size=UDim2.new(0,36,0,36)
+                rh.Position=UDim2.new(0,0,0,0);rh.BackgroundTransparency=1;rh.ZIndex=501;rh.Parent=toast
 
-                -- Outer pulse ring
-                local ring=Instance.new("Frame")
-                ring.Size=UDim2.new(0,20,0,20)
-                ring.AnchorPoint=Vector2.new(0.5,0.5)
-                ring.Position=UDim2.new(0.5,0,0.5,0)
-                ring.BackgroundColor3=item.pulse
-                ring.BackgroundTransparency=0.35
-                ring.BorderSizePixel=0;ring.ZIndex=502;ring.Parent=ringHolder
+                local ring=Instance.new("Frame");ring.Size=UDim2.new(0,20,0,20)
+                ring.AnchorPoint=Vector2.new(0.5,0.5);ring.Position=UDim2.new(0.5,0,0.5,0)
+                ring.BackgroundColor3=item.pulse;ring.BackgroundTransparency=0.35
+                ring.BorderSizePixel=0;ring.ZIndex=502;ring.Parent=rh
                 Instance.new("UICorner",ring).CornerRadius=UDim.new(1,0)
 
-                -- Inner dot
-                local dot=Instance.new("Frame")
-                dot.Size=UDim2.new(0,8,0,8)
-                dot.AnchorPoint=Vector2.new(0.5,0.5)
-                dot.Position=UDim2.new(0.5,0,0.5,0)
-                dot.BackgroundColor3=item.pulse
-                dot.BorderSizePixel=0;dot.ZIndex=503;dot.Parent=ring
+                local dot=Instance.new("Frame");dot.Size=UDim2.new(0,8,0,8)
+                dot.AnchorPoint=Vector2.new(0.5,0.5);dot.Position=UDim2.new(0.5,0,0.5,0)
+                dot.BackgroundColor3=item.pulse;dot.BorderSizePixel=0;dot.ZIndex=503;dot.Parent=ring
                 Instance.new("UICorner",dot).CornerRadius=UDim.new(1,0)
 
-                -- Pulse loop
                 local pulsing=true
                 task.spawn(function()
                     while pulsing and ring.Parent do
-                        ring.Size=UDim2.new(0,20,0,20)
-                        ring.BackgroundTransparency=0.35
+                        ring.Size=UDim2.new(0,20,0,20);ring.BackgroundTransparency=0.35
                         TweenService:Create(ring,TweenInfo.new(0.55,Enum.EasingStyle.Quad,Enum.EasingDirection.Out),{
-                            Size=UDim2.new(0,36,0,36),
-                            BackgroundTransparency=1
+                            Size=UDim2.new(0,36,0,36),BackgroundTransparency=1
                         }):Play()
                         task.wait(0.65)
                     end
                 end)
 
-                -- Text offset for pulse
                 local tl=Instance.new("TextLabel")
                 tl.Size=UDim2.new(1,-46,1,0);tl.Position=UDim2.new(0,40,0,0)
                 tl.BackgroundTransparency=1;tl.Text=item.msg;tl.TextColor3=c[2]
@@ -303,7 +276,6 @@ local function showToast(msg, toastType, pulseColor)
 
                 task.delay(2.4,function() pulsing=false end)
             else
-                -- Standard left bar (no pulse)
                 local bar=Instance.new("Frame")
                 bar.Size=UDim2.new(0,3,1,-10);bar.Position=UDim2.new(0,4,0,5)
                 bar.BackgroundColor3=c[2];bar.BorderSizePixel=0;bar.ZIndex=501;bar.Parent=toast
@@ -317,14 +289,9 @@ local function showToast(msg, toastType, pulseColor)
                 tl.TextWrapped=true;tl.ZIndex=501;tl.Parent=toast
             end
 
-            -- Slide in
-            local slideIn=TweenInfo.new(0.32,Enum.EasingStyle.Quint,Enum.EasingDirection.Out)
-            TweenService:Create(toast,slideIn,{Position=endP}):Play()
+            TweenService:Create(toast,TweenInfo.new(0.32,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{Position=endP}):Play()
             task.wait(2.3)
-
-            -- Slide out
-            TweenService:Create(toast,TweenInfo.new(0.25,Enum.EasingStyle.Quint,Enum.EasingDirection.In),
-                {Position=exitP}):Play()
+            TweenService:Create(toast,TweenInfo.new(0.25,Enum.EasingStyle.Quint,Enum.EasingDirection.In),{Position=exitP}):Play()
             task.wait(0.28);toast:Destroy();task.wait(0.08)
         end
         toastRunning=false
@@ -472,23 +439,19 @@ Instance.new("UICorner",boxPlus).CornerRadius=UDim.new(0,4)
 local boxPlusS=Instance.new("UIStroke");boxPlusS.Color=Color3.fromRGB(60,80,180);boxPlusS.Thickness=1;boxPlusS.Parent=boxPlus
 
 -- =====================
--- TIMER INDICATOR (below toggle bar)
+-- TIMER INDICATOR
 -- =====================
 local timerIndicator=Instance.new("Frame")
-timerIndicator.Size=UDim2.new(0,116,0,20)
-timerIndicator.AnchorPoint=Vector2.new(0.5,0)
-timerIndicator.Position=UDim2.new(0.5,0,0.88,40)
-timerIndicator.BackgroundColor3=Color3.fromRGB(7,7,16)
-timerIndicator.BackgroundTransparency=0.2
-timerIndicator.BorderSizePixel=0;timerIndicator.Visible=false;timerIndicator.Parent=gui
+timerIndicator.Size=UDim2.new(0,116,0,20);timerIndicator.AnchorPoint=Vector2.new(0.5,0)
+timerIndicator.Position=UDim2.new(0.5,0,0.88,40);timerIndicator.BackgroundColor3=Color3.fromRGB(7,7,16)
+timerIndicator.BackgroundTransparency=0.2;timerIndicator.BorderSizePixel=0
+timerIndicator.Visible=false;timerIndicator.Parent=gui
 Instance.new("UICorner",timerIndicator).CornerRadius=UDim.new(0,6)
 local timerS=Instance.new("UIStroke");timerS.Color=Color3.fromRGB(255,200,60);timerS.Thickness=1;timerS.Parent=timerIndicator
-
 local timerFill=Instance.new("Frame");timerFill.Size=UDim2.new(1,0,1,0)
 timerFill.BackgroundColor3=Color3.fromRGB(255,200,60);timerFill.BackgroundTransparency=0.6
 timerFill.BorderSizePixel=0;timerFill.ZIndex=1;timerFill.Parent=timerIndicator
 Instance.new("UICorner",timerFill).CornerRadius=UDim.new(0,6)
-
 local timerLbl=Instance.new("TextLabel");timerLbl.Size=UDim2.new(1,0,1,0)
 timerLbl.BackgroundTransparency=1;timerLbl.Text="⏱ 4.0s"
 timerLbl.TextColor3=Color3.fromRGB(255,220,80);timerLbl.TextSize=9;timerLbl.Font=Enum.Font.GothamBold
@@ -513,7 +476,8 @@ local mmS=Instance.new("UIStroke");mmS.Color=Color3.fromRGB(55,55,155);mmS.Thick
 
 local playerDot=Instance.new("Frame");playerDot.Size=UDim2.new(0,6,0,6)
 playerDot.AnchorPoint=Vector2.new(0.5,0.5);playerDot.Position=UDim2.new(0.5,0,0.5,0)
-playerDot.BackgroundColor3=Color3.fromRGB(70,225,255);playerDot.BorderSizePixel=0;playerDot.ZIndex=53;playerDot.Parent=minimapFrame
+playerDot.BackgroundColor3=Color3.fromRGB(70,225,255);playerDot.BorderSizePixel=0
+playerDot.ZIndex=53;playerDot.Parent=minimapFrame
 Instance.new("UICorner",playerDot).CornerRadius=UDim.new(1,0)
 
 local dirArrow=Instance.new("Frame");dirArrow.Size=UDim2.new(0,3,0,12)
@@ -539,7 +503,6 @@ for _,data in ipairs({{"N",0,-1},{"E",1,0},{"S",0,1},{"W",-1,0}}) do
     cl.TextSize=7;cl.Font=Enum.Font.GothamBold;cl.ZIndex=52;cl.Parent=minimapFrame
 end
 
--- Nearest wall distance label
 local nearestWallLbl=Instance.new("TextLabel");nearestWallLbl.Size=UDim2.new(0,MINIMAP_SIZE,0,13)
 nearestWallLbl.Position=UDim2.new(0,0,1,2);nearestWallLbl.BackgroundTransparency=1
 nearestWallLbl.Text="RADAR";nearestWallLbl.TextColor3=Color3.fromRGB(55,65,120);nearestWallLbl.TextSize=8
@@ -557,12 +520,10 @@ local cfgStroke=Instance.new("UIStroke");cfgStroke.Color=Color3.fromRGB(60,80,18
 local cfgTBar=Instance.new("Frame");cfgTBar.Size=UDim2.new(1,0,0,28)
 cfgTBar.BackgroundColor3=Color3.fromRGB(14,14,32);cfgTBar.BorderSizePixel=0;cfgTBar.ZIndex=21;cfgTBar.Parent=cfgPanel
 Instance.new("UICorner",cfgTBar).CornerRadius=UDim.new(0,10)
-
 local cfgTitle=Instance.new("TextLabel");cfgTitle.Size=UDim2.new(1,-36,1,0);cfgTitle.Position=UDim2.new(0,10,0,0)
 cfgTitle.BackgroundTransparency=1;cfgTitle.Text="Configuration";cfgTitle.TextColor3=Color3.fromRGB(120,180,255)
 cfgTitle.TextSize=11;cfgTitle.Font=Enum.Font.GothamBold;cfgTitle.TextXAlignment=Enum.TextXAlignment.Left
 cfgTitle.ZIndex=22;cfgTitle.Parent=cfgTBar
-
 local cfgClose=Instance.new("TextButton");cfgClose.Size=UDim2.new(0,20,0,20);cfgClose.Position=UDim2.new(1,-24,0,4)
 cfgClose.BackgroundColor3=Color3.fromRGB(140,30,30);cfgClose.BorderSizePixel=0;cfgClose.Text="×"
 cfgClose.TextColor3=Color3.fromRGB(255,255,255);cfgClose.TextSize=14;cfgClose.Font=Enum.Font.GothamBold
@@ -624,7 +585,8 @@ for i,def in ipairs(TAB_DEFS) do
     page.Visible=(def.id==activeTab);page.ZIndex=21;page.Parent=cfgPanel
     tabPages[def.id]=page
 
-    local pl=Instance.new("UIListLayout");pl.SortOrder=Enum.SortOrder.LayoutOrder;pl.Padding=UDim.new(0,5);pl.Parent=page
+    local pl=Instance.new("UIListLayout");pl.SortOrder=Enum.SortOrder.LayoutOrder
+    pl.Padding=UDim.new(0,5);pl.Parent=page
     local pp=Instance.new("UIPadding");pp.PaddingTop=UDim.new(0,4);pp.PaddingBottom=UDim.new(0,8)
     pp.PaddingLeft=UDim.new(0,4);pp.PaddingRight=UDim.new(0,4);pp.Parent=page
 
@@ -721,7 +683,6 @@ local function makeSlider(parent,label,key,minV,maxV,dec,order)
     end)
 end
 
--- Toggle row — auto-notifies on every toggle
 local function makeToggleRow(parent,label,key,order,onToggle)
     local row=Instance.new("Frame");row.Size=UDim2.new(1,0,0,34)
     row.BackgroundColor3=Color3.fromRGB(13,13,28);row.BorderSizePixel=0
@@ -753,11 +714,9 @@ local function makeToggleRow(parent,label,key,order,onToggle)
     refresh(Cfg[key]);toggleRefreshers[key]=refresh
     pb.MouseButton1Click:Connect(function()
         Cfg[key]=not Cfg[key];refresh(Cfg[key]);autoSave()
-        -- ← Auto notify with pulse for every toggle
         local isOn=Cfg[key]
-        local pulseCol=isOn and Color3.fromRGB(80,220,120) or Color3.fromRGB(255,80,80)
-        local toastT=isOn and "success" or "info"
-        showToast(label..": "..(isOn and "ON" or "OFF"), toastT, pulseCol)
+        showToast(label..": "..(isOn and "ON" or "OFF"),isOn and "success" or "info",
+            isOn and Color3.fromRGB(80,220,120) or Color3.fromRGB(255,80,80))
         if onToggle then onToggle(Cfg[key]) end
     end)
     return refresh
@@ -800,106 +759,46 @@ local function makeSectionHdr(parent,text,order)
     ln.BorderSizePixel=0;ln.ZIndex=22;ln.Parent=h
 end
 
--- Killer mode selector (3-button group)
-local function makeKillerModeRow(parent, order)
+local function makeButtonGroup(parent,label,cfgKey,options,optLabels,order)
     local row=Instance.new("Frame");row.Size=UDim2.new(1,0,0,50)
     row.BackgroundColor3=Color3.fromRGB(13,13,28);row.BorderSizePixel=0
     row.LayoutOrder=order;row.ZIndex=22;row.Parent=parent
     Instance.new("UICorner",row).CornerRadius=UDim.new(0,6)
-
     local lbl=Instance.new("TextLabel");lbl.Size=UDim2.new(1,-8,0,14);lbl.Position=UDim2.new(0,8,0,4)
-    lbl.BackgroundTransparency=1;lbl.Text="Alert Mode"
-    lbl.TextColor3=Color3.fromRGB(180,200,255);lbl.TextSize=10;lbl.Font=Enum.Font.Gotham
-    lbl.TextXAlignment=Enum.TextXAlignment.Left;lbl.ZIndex=23;lbl.Parent=row
-
-    local modes={"notify","highlight","both"}
-    local modeLabels={"Notify","Highlight","Both"}
-    local modeBtns={}
-
-    local btnHolder=Instance.new("Frame");btnHolder.Size=UDim2.new(1,-16,0,24)
-    btnHolder.Position=UDim2.new(0,8,0,22);btnHolder.BackgroundTransparency=1;btnHolder.ZIndex=23;btnHolder.Parent=row
+    lbl.BackgroundTransparency=1;lbl.Text=label;lbl.TextColor3=Color3.fromRGB(180,200,255)
+    lbl.TextSize=10;lbl.Font=Enum.Font.Gotham;lbl.TextXAlignment=Enum.TextXAlignment.Left;lbl.ZIndex=23;lbl.Parent=row
+    local bh=Instance.new("Frame");bh.Size=UDim2.new(1,-16,0,24);bh.Position=UDim2.new(0,8,0,22)
+    bh.BackgroundTransparency=1;bh.ZIndex=23;bh.Parent=row
     local bhl=Instance.new("UIListLayout");bhl.FillDirection=Enum.FillDirection.Horizontal
-    bhl.Padding=UDim.new(0,4);bhl.SortOrder=Enum.SortOrder.LayoutOrder;bhl.Parent=btnHolder
-
-    local function refreshModeBtn()
+    bhl.Padding=UDim.new(0,4);bhl.SortOrder=Enum.SortOrder.LayoutOrder;bhl.Parent=bh
+    local btns={}
+    local function refreshBtns()
         local t=getTheme()
-        for _,m in ipairs(modes) do
-            local btn=modeBtns[m]
-            if btn then
-                local isActive=(Cfg.KILLER_MODE==m)
-                TweenService:Create(btn,TweenInfo.new(0.15),{
-                    BackgroundColor3=isActive and Color3.fromRGB(20,60,160) or Color3.fromRGB(20,20,45),
-                    TextColor3=isActive and t.accent or Color3.fromRGB(100,120,180)
+        for _,opt in ipairs(options) do
+            local b=btns[opt]
+            if b then
+                local act=(Cfg[cfgKey]==opt)
+                TweenService:Create(b,TweenInfo.new(0.15),{
+                    BackgroundColor3=act and Color3.fromRGB(20,60,160) or Color3.fromRGB(20,20,45),
+                    TextColor3=act and t.accent or Color3.fromRGB(100,120,180)
                 }):Play()
             end
         end
     end
-
-    for i,m in ipairs(modes) do
-        local btn=Instance.new("TextButton");btn.Size=UDim2.new(0,60,1,0)
-        btn.BackgroundColor3=Color3.fromRGB(20,20,45);btn.BorderSizePixel=0
-        btn.Text=modeLabels[i];btn.TextColor3=Color3.fromRGB(100,120,180)
-        btn.TextSize=9;btn.Font=Enum.Font.GothamBold;btn.LayoutOrder=i;btn.ZIndex=24;btn.Parent=btnHolder
-        Instance.new("UICorner",btn).CornerRadius=UDim.new(0,5)
-        Instance.new("UIStroke",btn).Color=Color3.fromRGB(40,50,120)
-        modeBtns[m]=btn
-        btn.MouseButton1Click:Connect(function()
-            Cfg.KILLER_MODE=m;autoSave();refreshModeBtn()
-            showToast("Killer Alert: "..modeLabels[i],"info",nil)
+    for i,opt in ipairs(options) do
+        local b=Instance.new("TextButton");b.Size=UDim2.new(0,60,1,0)
+        b.BackgroundColor3=Color3.fromRGB(20,20,45);b.BorderSizePixel=0
+        b.Text=optLabels[i];b.TextColor3=Color3.fromRGB(100,120,180)
+        b.TextSize=9;b.Font=Enum.Font.GothamBold;b.LayoutOrder=i;b.ZIndex=24;b.Parent=bh
+        Instance.new("UICorner",b).CornerRadius=UDim.new(0,5)
+        Instance.new("UIStroke",b).Color=Color3.fromRGB(40,50,120)
+        btns[opt]=b
+        b.MouseButton1Click:Connect(function()
+            Cfg[cfgKey]=opt;autoSave();refreshBtns()
+            showToast(label..": "..optLabels[i],"info",nil)
         end)
     end
-    refreshModeBtn()
-end
-
--- Toast position selector (3-button group)
-local function makeToastPosRow(parent, order)
-    local row=Instance.new("Frame");row.Size=UDim2.new(1,0,0,50)
-    row.BackgroundColor3=Color3.fromRGB(13,13,28);row.BorderSizePixel=0
-    row.LayoutOrder=order;row.ZIndex=22;row.Parent=parent
-    Instance.new("UICorner",row).CornerRadius=UDim.new(0,6)
-
-    local lbl=Instance.new("TextLabel");lbl.Size=UDim2.new(1,-8,0,14);lbl.Position=UDim2.new(0,8,0,4)
-    lbl.BackgroundTransparency=1;lbl.Text="Toast Position"
-    lbl.TextColor3=Color3.fromRGB(180,200,255);lbl.TextSize=10;lbl.Font=Enum.Font.Gotham
-    lbl.TextXAlignment=Enum.TextXAlignment.Left;lbl.ZIndex=23;lbl.Parent=row
-
-    local posKeys={"default","top_left","bottom_left"}
-    local posLabels={"Center","Top L","Bot L"}
-    local posBtns={}
-
-    local btnHolder=Instance.new("Frame");btnHolder.Size=UDim2.new(1,-16,0,24)
-    btnHolder.Position=UDim2.new(0,8,0,22);btnHolder.BackgroundTransparency=1;btnHolder.ZIndex=23;btnHolder.Parent=row
-    local bhl=Instance.new("UIListLayout");bhl.FillDirection=Enum.FillDirection.Horizontal
-    bhl.Padding=UDim.new(0,4);bhl.SortOrder=Enum.SortOrder.LayoutOrder;bhl.Parent=btnHolder
-
-    local function refreshPosBtn()
-        local t=getTheme()
-        for _,pk in ipairs(posKeys) do
-            local btn=posBtns[pk]
-            if btn then
-                local isActive=(Cfg.TOAST_POSITION==pk)
-                TweenService:Create(btn,TweenInfo.new(0.15),{
-                    BackgroundColor3=isActive and Color3.fromRGB(20,60,160) or Color3.fromRGB(20,20,45),
-                    TextColor3=isActive and t.accent or Color3.fromRGB(100,120,180)
-                }):Play()
-            end
-        end
-    end
-
-    for i,pk in ipairs(posKeys) do
-        local btn=Instance.new("TextButton");btn.Size=UDim2.new(0,60,1,0)
-        btn.BackgroundColor3=Color3.fromRGB(20,20,45);btn.BorderSizePixel=0
-        btn.Text=posLabels[i];btn.TextColor3=Color3.fromRGB(100,120,180)
-        btn.TextSize=9;btn.Font=Enum.Font.GothamBold;btn.LayoutOrder=i;btn.ZIndex=24;btn.Parent=btnHolder
-        Instance.new("UICorner",btn).CornerRadius=UDim.new(0,5)
-        Instance.new("UIStroke",btn).Color=Color3.fromRGB(40,50,120)
-        posBtns[pk]=btn
-        btn.MouseButton1Click:Connect(function()
-            Cfg.TOAST_POSITION=pk;autoSave();refreshPosBtn()
-            showToast("Toast: "..posLabels[i],"info",Color3.fromRGB(100,160,255))
-        end)
-    end
-    refreshPosBtn()
+    refreshBtns()
 end
 
 -- =====================
@@ -942,7 +841,8 @@ makeSlider(tabPages.mode,"Wall Distance",     "WALL_DISTANCE", 1,10,1,11)
 makeSectionHdr(tabPages.mode,"KILLER PROXIMITY",12)
 makeToggleRow(tabPages.mode,"Killer Notify",  "KILLER_NOTIFY", 13)
 makeSlider(tabPages.mode,"Alert Range",       "KILLER_RANGE",  10,150,0,14)
-makeKillerModeRow(tabPages.mode,15)
+makeButtonGroup(tabPages.mode,"Alert Mode","KILLER_MODE",
+    {"notify","highlight","both"},{"Notify","Highlight","Both"},15)
 
 -- KEYS
 makeSectionHdr(tabPages.keys,"KEYBINDS",1)
@@ -959,7 +859,8 @@ makeToggleRow(tabPages.gui,"Show Minimap","SHOW_MINIMAP",3,function(val)
     minimapFrame.Visible=val
 end)
 makeSectionHdr(tabPages.gui,"NOTIFICATION",4)
-makeToastPosRow(tabPages.gui,5)
+makeButtonGroup(tabPages.gui,"Toast Position","TOAST_POSITION",
+    {"default","top_left","bottom_left"},{"Center","Top L","Bot L"},5)
 makeSectionHdr(tabPages.gui,"THEME",6)
 
 local themeRow=Instance.new("Frame");themeRow.Size=UDim2.new(1,0,0,40)
@@ -1026,15 +927,16 @@ loaderPanel.Position=UDim2.new(0.5,10,0.88,-300);loaderPanel.BackgroundColor3=Co
 loaderPanel.BorderSizePixel=0;loaderPanel.Visible=false;loaderPanel.ZIndex=30;loaderPanel.Parent=gui
 Instance.new("UICorner",loaderPanel).CornerRadius=UDim.new(0,10)
 local ldrS=Instance.new("UIStroke");ldrS.Color=Color3.fromRGB(60,80,180);ldrS.Thickness=1.5;ldrS.Parent=loaderPanel
-local ldrTBar=Instance.new("Frame");ldrTBar.Size=UDim2.new(1,0,0,28);ldrTBar.BackgroundColor3=Color3.fromRGB(14,14,32)
-ldrTBar.BorderSizePixel=0;ldrTBar.ZIndex=31;ldrTBar.Parent=loaderPanel
+local ldrTBar=Instance.new("Frame");ldrTBar.Size=UDim2.new(1,0,0,28)
+ldrTBar.BackgroundColor3=Color3.fromRGB(14,14,32);ldrTBar.BorderSizePixel=0;ldrTBar.ZIndex=31;ldrTBar.Parent=loaderPanel
 Instance.new("UICorner",ldrTBar).CornerRadius=UDim.new(0,10)
 local ldrT=Instance.new("TextLabel");ldrT.Size=UDim2.new(1,-36,1,0);ldrT.Position=UDim2.new(0,10,0,0)
 ldrT.BackgroundTransparency=1;ldrT.Text="Config Loader";ldrT.TextColor3=Color3.fromRGB(120,180,255)
 ldrT.TextSize=11;ldrT.Font=Enum.Font.GothamBold;ldrT.TextXAlignment=Enum.TextXAlignment.Left;ldrT.ZIndex=32;ldrT.Parent=ldrTBar
 local ldrClose=Instance.new("TextButton");ldrClose.Size=UDim2.new(0,20,0,20);ldrClose.Position=UDim2.new(1,-24,0,4)
 ldrClose.BackgroundColor3=Color3.fromRGB(140,30,30);ldrClose.BorderSizePixel=0;ldrClose.Text="×"
-ldrClose.TextColor3=Color3.fromRGB(255,255,255);ldrClose.TextSize=14;ldrClose.Font=Enum.Font.GothamBold;ldrClose.ZIndex=32;ldrClose.Parent=ldrTBar
+ldrClose.TextColor3=Color3.fromRGB(255,255,255);ldrClose.TextSize=14;ldrClose.Font=Enum.Font.GothamBold
+ldrClose.ZIndex=32;ldrClose.Parent=ldrTBar
 Instance.new("UICorner",ldrClose).CornerRadius=UDim.new(0,4)
 ldrClose.MouseButton1Click:Connect(function() loaderPanel.Visible=false end)
 
@@ -1047,17 +949,20 @@ saBox.ClearTextOnFocus=false;saBox.ZIndex=32;saBox.Parent=saveAsRow
 Instance.new("UICorner",saBox).CornerRadius=UDim.new(0,6);Instance.new("UIStroke",saBox).Color=Color3.fromRGB(50,70,160)
 local saBtn=Instance.new("TextButton");saBtn.Size=UDim2.new(0,56,1,0);saBtn.Position=UDim2.new(1,-56,0,0)
 saBtn.BackgroundColor3=Color3.fromRGB(15,70,15);saBtn.BorderSizePixel=0;saBtn.Text="Save As"
-saBtn.TextColor3=Color3.fromRGB(100,255,100);saBtn.TextSize=9;saBtn.Font=Enum.Font.GothamBold;saBtn.ZIndex=32;saBtn.Parent=saveAsRow
+saBtn.TextColor3=Color3.fromRGB(100,255,100);saBtn.TextSize=9;saBtn.Font=Enum.Font.GothamBold
+saBtn.ZIndex=32;saBtn.Parent=saveAsRow
 Instance.new("UICorner",saBtn).CornerRadius=UDim.new(0,6)
 
 local ldrStatus=Instance.new("TextLabel");ldrStatus.Size=UDim2.new(1,-10,0,13);ldrStatus.Position=UDim2.new(0,5,0,62)
 ldrStatus.BackgroundTransparency=1;ldrStatus.Text="";ldrStatus.TextColor3=Color3.fromRGB(100,220,100)
-ldrStatus.TextSize=9;ldrStatus.Font=Enum.Font.Gotham;ldrStatus.TextXAlignment=Enum.TextXAlignment.Center;ldrStatus.ZIndex=31;ldrStatus.Parent=loaderPanel
+ldrStatus.TextSize=9;ldrStatus.Font=Enum.Font.Gotham;ldrStatus.TextXAlignment=Enum.TextXAlignment.Center
+ldrStatus.ZIndex=31;ldrStatus.Parent=loaderPanel
 
-local profilesList=Instance.new("ScrollingFrame");profilesList.Size=UDim2.new(1,-10,1,-80);profilesList.Position=UDim2.new(0,5,0,76)
-profilesList.BackgroundTransparency=1;profilesList.BorderSizePixel=0;profilesList.ScrollBarThickness=2
-profilesList.ScrollBarImageColor3=Color3.fromRGB(60,80,180);profilesList.CanvasSize=UDim2.new(0,0,0,0)
-profilesList.AutomaticCanvasSize=Enum.AutomaticSize.Y;profilesList.ZIndex=31;profilesList.Parent=loaderPanel
+local profilesList=Instance.new("ScrollingFrame");profilesList.Size=UDim2.new(1,-10,1,-80)
+profilesList.Position=UDim2.new(0,5,0,76);profilesList.BackgroundTransparency=1;profilesList.BorderSizePixel=0
+profilesList.ScrollBarThickness=2;profilesList.ScrollBarImageColor3=Color3.fromRGB(60,80,180)
+profilesList.CanvasSize=UDim2.new(0,0,0,0);profilesList.AutomaticCanvasSize=Enum.AutomaticSize.Y
+profilesList.ZIndex=31;profilesList.Parent=loaderPanel
 local pll=Instance.new("UIListLayout");pll.SortOrder=Enum.SortOrder.LayoutOrder;pll.Padding=UDim.new(0,4);pll.Parent=profilesList
 local plp=Instance.new("UIPadding");plp.PaddingTop=UDim.new(0,2);plp.PaddingBottom=UDim.new(0,4)
 plp.PaddingLeft=UDim.new(0,2);plp.PaddingRight=UDim.new(0,2);plp.Parent=profilesList
@@ -1087,12 +992,12 @@ local function buildProfiles()
         nl.TextTruncate=Enum.TextTruncate.AtEnd;nl.ZIndex=33;nl.Parent=pr
         local lb=Instance.new("TextButton");lb.Size=UDim2.new(0,32,0,20);lb.Position=UDim2.new(1,-72,0.5,-10)
         lb.BackgroundColor3=Color3.fromRGB(15,50,100);lb.BorderSizePixel=0;lb.Text="Load"
-        lb.TextColor3=Color3.fromRGB(100,180,255);lb.TextSize=9;lb.Font=Enum.Font.GothamBold;lb.ZIndex=33;lb.Parent=pr
-        Instance.new("UICorner",lb).CornerRadius=UDim.new(0,4)
+        lb.TextColor3=Color3.fromRGB(100,180,255);lb.TextSize=9;lb.Font=Enum.Font.GothamBold
+        lb.ZIndex=33;lb.Parent=pr;Instance.new("UICorner",lb).CornerRadius=UDim.new(0,4)
         local db=Instance.new("TextButton");db.Size=UDim2.new(0,32,0,20);db.Position=UDim2.new(1,-34,0.5,-10)
         db.BackgroundColor3=Color3.fromRGB(80,15,15);db.BorderSizePixel=0;db.Text="Del"
-        db.TextColor3=Color3.fromRGB(255,100,100);db.TextSize=9;db.Font=Enum.Font.GothamBold;db.ZIndex=33;db.Parent=pr
-        Instance.new("UICorner",db).CornerRadius=UDim.new(0,4)
+        db.TextColor3=Color3.fromRGB(255,100,100);db.TextSize=9;db.Font=Enum.Font.GothamBold
+        db.ZIndex=33;db.Parent=pr;Instance.new("UICorner",db).CornerRadius=UDim.new(0,4)
         local cap=name
         lb.MouseButton1Click:Connect(function()
             local pd=profiles[cap];if not pd then return end
@@ -1122,7 +1027,7 @@ saBtn.MouseButton1Click:Connect(function()
     if n=="" then flashLdr("Enter a name!",Color3.fromRGB(255,100,100));return end
     profiles[n]=deepCopy(Cfg);saveProfiles();buildProfiles()
     saBox.Text="";flashLdr('Saved as "'..n..'"',Color3.fromRGB(100,255,100))
-    showToast('Saved config "'..n..'"',"success",Color3.fromRGB(80,220,120))
+    showToast('Saved "'..n..'"',"success",Color3.fromRGB(80,220,120))
 end)
 loaderOpenBtn.MouseButton1Click:Connect(function()
     loaderPanel.Visible=not loaderPanel.Visible
@@ -1178,7 +1083,7 @@ boxPlus.MouseButton1Click:Connect(function() setCfgOpen(not cfgOpen) end)
 cfgClose.MouseButton1Click:Connect(function() setCfgOpen(false) end)
 
 -- =====================
--- APPLY STATE
+-- APPLY STATE  ← Fixed carry recovery
 -- =====================
 local function applyToCharacter()
     local hum=getHum();if not hum then return end
@@ -1187,9 +1092,14 @@ local function applyToCharacter()
         local s=Vector3.new(camera.CFrame.LookVector.X,0,camera.CFrame.LookVector.Z)
         if s.Magnitude>0.01 then currentFwd=s.Unit end
         updateWallRayParams()
+    else
+        -- ← Full reset: ensure no moonwalk state lingers
+        hum.AutoRotate=true
+        hum.WalkSpeed=savedWalkSpeed>0 and savedWalkSpeed or 16
+        smoothAlpha=0
     end
     hum.AutoRotate=not moonwalkActive
-    hum.WalkSpeed=moonwalkActive and Cfg.MOONWALK_SPEED or savedWalkSpeed
+    hum.WalkSpeed=moonwalkActive and Cfg.MOONWALK_SPEED or (savedWalkSpeed>0 and savedWalkSpeed or 16)
 end
 
 -- =====================
@@ -1209,7 +1119,6 @@ local function refreshUI()
     boxMoonImg.ImageColor3=on and t.accent or Color3.fromRGB(100,100,160)
     boxMoonFb.TextColor3=on and t.accent or Color3.fromRGB(100,100,160)
     dirArrow.BackgroundColor3=on and t.accent or Color3.fromRGB(60,70,100)
-    -- Timer indicator visibility
     timerIndicator.Visible=(on and Cfg.TIMER_ENABLED)
 end
 
@@ -1245,8 +1154,6 @@ UserInputService.InputChanged:Connect(function(inp)
     if dragging and not isLocked then
         local af=getActiveFrame()
         af.Position=UDim2.new(startPos.X.Scale,startPos.X.Offset+d.X,startPos.Y.Scale,startPos.Y.Offset+d.Y)
-        -- Move timer indicator with toggle bar
-        timerIndicator.Position=UDim2.new(0.5,af.Position.X.Offset-58+58,0.88,af.Position.Y.Offset+40-UDim2.new(0.5,0,0.88,0).Y.Offset)
         if cfgPanel.Visible then
             cfgPanel.Position=UDim2.new(af.Position.X.Scale,af.Position.X.Offset-67,af.Position.Y.Scale,af.Position.Y.Offset-410)
         end
@@ -1261,15 +1168,12 @@ UserInputService.InputEnded:Connect(function(inp)
         tapConsumed=true;moonwalkActive=not moonwalkActive
         stepTimer=0;stepSide=1;elapsedTime=0
         humanSpeedCurrent=Cfg.MOONWALK_SPEED;humanSpeedTarget=Cfg.MOONWALK_SPEED
-        -- Reset timer countdown
         if moonwalkActive and Cfg.TIMER_ENABLED then
             timerCountdown=Cfg.TIMER_DURATION;timerActive=true
-        else
-            timerActive=false
-        end
+        else timerActive=false end
         applyToCharacter();refreshUI()
         local pulse=moonwalkActive and Color3.fromRGB(80,220,120) or Color3.fromRGB(255,80,80)
-        showToast("Moonwalk "..(moonwalkActive and "ON" or "OFF"), moonwalkActive and "success" or "info", pulse)
+        showToast("Moonwalk "..(moonwalkActive and "ON" or "OFF"),moonwalkActive and "success" or "info",pulse)
     end
 end)
 
@@ -1305,13 +1209,17 @@ UserInputService.InputBegan:Connect(function(inp,gp)
 end)
 
 -- =====================
--- RESPAWN
+-- RESPAWN ← Enhanced reset
 -- =====================
 local function onCharacterAdded(newChar)
     newChar:WaitForChild("HumanoidRootPart");newChar:WaitForChild("Humanoid")
-    task.wait(0.5);stepTimer=0;stepSide=1;elapsedTime=0
-    humanSpeedCurrent=Cfg.MOONWALK_SPEED;applyToCharacter();updateWallRayParams()
-    -- Clear all killer highlights on respawn
+    task.wait(0.5)
+    -- ← Full state reset on respawn
+    wasCarried=false;carryResetTimer=0;smoothAlpha=0
+    moonwalkActive=false;timerActive=false
+    stepTimer=0;stepSide=1;elapsedTime=0
+    humanSpeedCurrent=Cfg.MOONWALK_SPEED;humanSpeedTarget=Cfg.MOONWALK_SPEED
+    applyToCharacter();updateWallRayParams();refreshUI()
     for p,sb in pairs(killerHighlights) do if sb then sb:Destroy() end end
     killerHighlights={}
 end
@@ -1319,120 +1227,100 @@ player.CharacterAdded:Connect(onCharacterAdded)
 if player.Character then task.spawn(function() onCharacterAdded(player.Character) end) end
 
 -- =====================
--- KILLER PROXIMITY DETECTION LOOP
+-- KILLER PROXIMITY
 -- =====================
 task.spawn(function()
     while true do
         task.wait(0.5)
         if not Cfg.KILLER_NOTIFY then
-            -- Clean up all highlights if disabled
-            for p,sb in pairs(killerHighlights) do
-                if sb then sb:Destroy() end
-                killerHighlights[p]=nil
-            end
+            for p,sb in pairs(killerHighlights) do if sb then sb:Destroy() end;killerHighlights[p]=nil end
             continue
         end
-
-        local myHRP=getHRP()
-        if not myHRP then continue end
-
+        local myHRP=getHRP();if not myHRP then continue end
         local currentKillers={}
-
         for _,p in ipairs(Players:GetPlayers()) do
             if p==player then continue end
-            local char=p.Character
-            if not char then continue end
-
-            -- Check team name
-            local isKiller=false
-            if p.Team and p.Team.Name==Cfg.KILLER_TEAM then
-                isKiller=true
-            end
-            -- Also check by name in TeamColor or custom attribute
-            if not isKiller and char:FindFirstChild("IsKiller") then
-                isKiller=true
-            end
-
+            local char=p.Character;if not char then continue end
+            local isKiller=(p.Team and p.Team.Name==Cfg.KILLER_TEAM)
+                or (char:FindFirstChild("IsKiller")~=nil)
             if not isKiller then
-                -- Clean highlight if no longer killer
                 if killerHighlights[p] then killerHighlights[p]:Destroy();killerHighlights[p]=nil end
                 continue
             end
-
-            local killerHRP=char:FindFirstChild("HumanoidRootPart")
-            if not killerHRP then continue end
-
-            local dist=(myHRP.Position-killerHRP.Position).Magnitude
-
+            local kHRP=char:FindFirstChild("HumanoidRootPart");if not kHRP then continue end
+            local dist=(myHRP.Position-kHRP.Position).Magnitude
             if dist<=Cfg.KILLER_RANGE then
                 currentKillers[p]=dist
-
-                -- Highlight
-                if Cfg.KILLER_MODE=="highlight" or Cfg.KILLER_MODE=="both" then
-                    if not killerHighlights[p] then
-                        local sb=Instance.new("SelectionBox")
-                        sb.Adornee=char
-                        sb.Color3=Color3.fromRGB(255,60,60)
-                        sb.LineThickness=0.06
-                        sb.SurfaceTransparency=0.7
-                        sb.SurfaceColor3=Color3.fromRGB(255,60,60)
-                        sb.Parent=workspace
-                        killerHighlights[p]=sb
-                    end
+                if (Cfg.KILLER_MODE=="highlight" or Cfg.KILLER_MODE=="both") and not killerHighlights[p] then
+                    local sb=Instance.new("SelectionBox");sb.Adornee=char
+                    sb.Color3=Color3.fromRGB(255,60,60);sb.LineThickness=0.06
+                    sb.SurfaceTransparency=0.7;sb.SurfaceColor3=Color3.fromRGB(255,60,60);sb.Parent=workspace
+                    killerHighlights[p]=sb
                 end
-
-                -- Notify (with cooldown so it doesn't spam)
                 if (Cfg.KILLER_MODE=="notify" or Cfg.KILLER_MODE=="both") and killerAlertCooldown<=0 then
-                    local distStr=math.floor(dist).."st"
-                    showToast("⚠ "..p.Name.." nearby! ("..distStr..")","error",Color3.fromRGB(255,60,60))
-                    killerAlertCooldown=4  -- 4 second cooldown between alerts
+                    showToast("⚠ "..p.Name.." nearby! ("..math.floor(dist).."st)","error",Color3.fromRGB(255,60,60))
+                    killerAlertCooldown=4
                 end
             else
-                -- Out of range — remove highlight
                 if killerHighlights[p] then killerHighlights[p]:Destroy();killerHighlights[p]=nil end
             end
         end
-
-        -- Clean up highlights for players who left
         for p,sb in pairs(killerHighlights) do
-            if not currentKillers[p] then
-                if sb then sb:Destroy() end
-                killerHighlights[p]=nil
-            end
+            if not currentKillers[p] then if sb then sb:Destroy() end;killerHighlights[p]=nil end
         end
     end
 end)
 
 -- =====================
--- HEARTBEAT
+-- HEARTBEAT ← Carry detection integrated
 -- =====================
 RunService.Heartbeat:Connect(function(dt)
-    -- Smooth toggle alpha
+    -- ── Smooth toggle alpha ──
     local alphaTarget=moonwalkActive and 1 or 0
     smoothAlpha=smoothAlpha+(alphaTarget-smoothAlpha)*math.min(dt*Cfg.SMOOTH_SPEED,1)
 
-    -- Alert cooldown
+    -- ── Carry Detection & Recovery ──
+    local hrpC=getHRP();local humC=getHum()
+    if hrpC and humC then
+        local vel=hrpC.AssemblyLinearVelocity
+        local horizSpeed=Vector3.new(vel.X,0,vel.Z).Magnitude
+        -- Detect being carried: fast horizontal movement while moonwalk is OFF
+        local isBeingCarried=(horizSpeed>carryVelThresh and not moonwalkActive)
+        if isBeingCarried then
+            wasCarried=true;carryResetTimer=0.6
+        end
+        if wasCarried then
+            carryResetTimer=carryResetTimer-dt
+            if carryResetTimer<=0 then
+                wasCarried=false
+                -- ← Full recovery: restore humanoid and clear residual velocity
+                humC.AutoRotate=true
+                humC.WalkSpeed=savedWalkSpeed>0 and savedWalkSpeed or 16
+                if not moonwalkActive then
+                    -- Zero horizontal velocity to prevent sliding after carry
+                    hrpC.AssemblyLinearVelocity=Vector3.new(0,hrpC.AssemblyLinearVelocity.Y,0)
+                end
+                smoothAlpha=0
+            end
+        end
+    end
+
+    -- ── Alert cooldown ──
     if killerAlertCooldown>0 then killerAlertCooldown=killerAlertCooldown-dt end
 
-    -- Timer moonwalk countdown
+    -- ── Timer moonwalk countdown ──
     if timerActive and moonwalkActive and Cfg.TIMER_ENABLED then
         timerCountdown=timerCountdown-dt
         local pct=math.clamp(timerCountdown/Cfg.TIMER_DURATION,0,1)
         timerFill.Size=UDim2.new(pct,0,1,0)
         timerLbl.Text="⏱ "..string.format("%.1f",math.max(timerCountdown,0)).."s"
-
-        -- Color shift: green → yellow → red as time runs out
         if pct>0.5 then
-            timerFill.BackgroundColor3=Color3.fromRGB(80,200,80)
-            timerS.Color=Color3.fromRGB(60,160,60)
+            timerFill.BackgroundColor3=Color3.fromRGB(80,200,80);timerS.Color=Color3.fromRGB(60,160,60)
         elseif pct>0.25 then
-            timerFill.BackgroundColor3=Color3.fromRGB(255,200,40)
-            timerS.Color=Color3.fromRGB(180,140,20)
+            timerFill.BackgroundColor3=Color3.fromRGB(255,200,40);timerS.Color=Color3.fromRGB(180,140,20)
         else
-            timerFill.BackgroundColor3=Color3.fromRGB(255,60,60)
-            timerS.Color=Color3.fromRGB(180,30,30)
+            timerFill.BackgroundColor3=Color3.fromRGB(255,60,60);timerS.Color=Color3.fromRGB(180,30,30)
         end
-
         if timerCountdown<=0 then
             timerActive=false;moonwalkActive=false
             applyToCharacter();refreshUI()
@@ -1442,7 +1330,7 @@ RunService.Heartbeat:Connect(function(dt)
         timerIndicator.Visible=(moonwalkActive and Cfg.TIMER_ENABLED)
     end
 
-    -- Hold lock timer
+    -- ── Hold lock timer ──
     if isHolding and not dragging then
         holdTimer=holdTimer+dt
         if progressBar then progressBar.Size=UDim2.new(math.clamp(holdTimer/LOCK_HOLD_TIME,0,1),0,1,0) end
@@ -1454,7 +1342,7 @@ RunService.Heartbeat:Connect(function(dt)
         end
     end
 
-    -- Wall cooldown
+    -- ── Wall cooldown ──
     if wallCooldown>0 then wallCooldown=wallCooldown-dt end
 end)
 
@@ -1464,7 +1352,7 @@ end)
 RunService.RenderStepped:Connect(function(dt)
     local hrp=getHRP();local hum=getHum()
 
-    -- Minimap + nearest wall label
+    -- Minimap (runs regardless of moonwalk state)
     if Cfg.SHOW_MINIMAP and hrp then
         local camY=camera.CFrame.LookVector
         local camFwd=Vector3.new(camY.X,0,camY.Z)
@@ -1499,24 +1387,23 @@ RunService.RenderStepped:Connect(function(dt)
                 blip.Visible=true
             else blip.Visible=false end
         end
-
-        -- Update nearest wall label
         if nearestDist<math.huge then
             nearestWallLbl.Text=string.format("%.1fst",nearestDist)
             nearestWallLbl.TextColor3=nearestDist<10 and Color3.fromRGB(255,80,80)
                 or nearestDist<25 and Color3.fromRGB(255,200,60)
                 or Color3.fromRGB(55,65,120)
-        else
-            nearestWallLbl.Text="RADAR"
-            nearestWallLbl.TextColor3=Color3.fromRGB(55,65,120)
-        end
+        else nearestWallLbl.Text="RADAR";nearestWallLbl.TextColor3=Color3.fromRGB(55,65,120) end
     else
-        for _,b in ipairs(wallBlips) do b.Visible=false end
-        dirArrow.Visible=false
+        for _,b in ipairs(wallBlips) do b.Visible=false end;dirArrow.Visible=false
     end
 
+    -- ← Guard: skip moonwalk logic if alpha too low
     if smoothAlpha<0.01 then return end
     if not hrp or not hum or hum.Health<=0 then return end
+
+    -- ← Guard: skip if still in carry recovery window
+    if wasCarried then return end
+
     if hum.WalkSpeed~=Cfg.MOONWALK_SPEED then hum.WalkSpeed=Cfg.MOONWALK_SPEED end
 
     stepTimer+=dt;elapsedTime+=dt
@@ -1551,22 +1438,15 @@ RunService.RenderStepped:Connect(function(dt)
         effectiveSpeed=humanSpeedCurrent+antiOffset.speed
     else effectiveSpeed=Cfg.MOONWALK_SPEED+antiOffset.speed end
 
-    -- ── 360° Arc Wall Auto-Off ──
-    -- Check 5 rays spread across a 80° forward cone
+    -- 360° Arc Wall Auto-Off (5 rays spread across 80° cone)
     if Cfg.WALL_AUTO_OFF and moonwalkActive and wallCooldown<=0 then
         local moveDir=Cfg.FRONT_FACING and fwd or -fwd
-        local rightVecW=Vector3.new(moveDir.Z,0,-moveDir.X)
-        local arcAngles={0,-20,20,-40,40}  -- degrees spread
         local wallHit=false
-        for _,deg in ipairs(arcAngles) do
-            local rad=math.rad(deg)
-            local rayDir=CFrame.fromAxisAngle(Vector3.new(0,1,0),rad)*moveDir
-            local rayResult=workspace:Raycast(
-                hrp.Position+Vector3.new(0,1,0),
-                rayDir*Cfg.WALL_DISTANCE,
-                wallRayParams
-            )
-            if rayResult then wallHit=true;break end
+        for _,deg in ipairs({0,-20,20,-40,40}) do
+            local rayDir=CFrame.fromAxisAngle(Vector3.new(0,1,0),math.rad(deg))*moveDir
+            if workspace:Raycast(hrp.Position+Vector3.new(0,1,0),rayDir*Cfg.WALL_DISTANCE,wallRayParams) then
+                wallHit=true;break
+            end
         end
         if wallHit then
             moonwalkActive=false;smoothAlpha=0;wallCooldown=1.5
@@ -1581,7 +1461,11 @@ RunService.RenderStepped:Connect(function(dt)
     local sideVel=rightVec*sineVal*(Cfg.SWING_WIDTH+antiOffset.swing)
     local targetVel=Vector3.new(moveVel.X+sideVel.X,hrp.AssemblyLinearVelocity.Y,moveVel.Z+sideVel.Z)
     local scaledVel=Vector3.new(targetVel.X*smoothAlpha,hrp.AssemblyLinearVelocity.Y,targetVel.Z*smoothAlpha)
-    hrp.AssemblyLinearVelocity=hrp.AssemblyLinearVelocity:Lerp(scaledVel,Cfg.VEL_SMOOTH)
+
+    -- ← Only write velocity if moonwalk is genuinely active and not in carry recovery
+    if moonwalkActive and not wasCarried then
+        hrp.AssemblyLinearVelocity=hrp.AssemblyLinearVelocity:Lerp(scaledVel,Cfg.VEL_SMOOTH)
+    end
 
     local faceFwd=Cfg.FRONT_FACING and -fwd or fwd
     local faceCF=CFrame.new(hrp.Position,hrp.Position+faceFwd)
@@ -1591,7 +1475,7 @@ RunService.RenderStepped:Connect(function(dt)
 end)
 
 refreshUI()
-print("🌙 Moonwalk v5.2 | "..Cfg.KEYBIND_1.."/"..Cfg.KEYBIND_2.." | Hold 0.8s = Lock")
+print("🌙 Moonwalk v5.3 | "..Cfg.KEYBIND_1.."/"..Cfg.KEYBIND_2.." | Hold 0.8s = Lock")
 showToast("🌙 Violence District loaded","success",Color3.fromRGB(80,220,120))
 
 end)
